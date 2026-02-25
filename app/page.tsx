@@ -303,11 +303,11 @@ export default function Home() {
   }, [scoreboard, allUsers]);
 
   const dayGames = scoreboard.filter(g => g.date === currentDateStr);
-  const availableTeams = [...new Set(
+  const availableTeams = Array.from(new Set(
     dayGames
       .filter(g => g.homeTeam.rank || g.awayTeam.rank)
       .flatMap(g => [g.homeTeam.name, g.awayTeam.name].filter(Boolean))
-  )].sort((a, b) => a.localeCompare(b));
+  )).sort((a, b) => a.localeCompare(b));
 
   const firstTipOff = dayGames
     .filter(g => g.startTime)
