@@ -74,18 +74,15 @@ function LiveTicker() {
   const fetchScores = async () => {
     try {
       const today = new Date();
-      const tomorrow = new Date(today); tomorrow.setDate(today.getDate() + 1);
       const formatDate = (d: Date) => d.toISOString().split('T')[0].replace(/-/g, '');
 
       let allEvents: any[] = [];
-      for (const dateStr of [formatDate(today), formatDate(tomorrow)]) {
-        const res = await fetch(
-          `https://site.api.espn.com/apis/site/v2/sports/basketball/mens-college-basketball/scoreboard?dates=${dateStr}&groups=50&limit=500`
-        );
-        if (res.ok) {
-          const data = await res.json();
-          allEvents = [...allEvents, ...(data.events || [])];
-        }
+      const res = await fetch(
+        `https://site.api.espn.com/apis/site/v2/sports/basketball/mens-college-basketball/scoreboard?dates=${formatDate(today)}&groups=50&limit=500`
+      );
+      if (res.ok) {
+        const data = await res.json();
+        allEvents = [...allEvents, ...(data.events || [])];
       }
 
       const formatted = allEvents.map((e: any) => {
@@ -115,9 +112,10 @@ function LiveTicker() {
         };
       }).filter(Boolean) as Game[];
 
+      const todayStr = new Date().toLocaleDateString('en-CA');
       setGames(formatted.filter(g => {
         const desc = g.status.toLowerCase();
-        return !desc.includes('final') && !desc.includes('end') && (g.homeTeam.rank || g.awayTeam.rank);
+        return g.date === todayStr && !desc.includes('final') && !desc.includes('end') && (g.homeTeam.rank || g.awayTeam.rank);
       }));
     } catch {
       setError('Live scores unavailable');
