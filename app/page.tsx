@@ -429,7 +429,7 @@ export default function Home() {
       <style jsx global>{`
         @keyframes marquee { 0% { transform: translateX(0); } 100% { transform: translateX(-50%); } }
         .animate-marquee { animation: marquee 70s linear infinite; }
-        .heartbeat-alive { display: inline-block; width: 60px; height: 20px; margin-left: 8px; vertical-align: middle; }
+        .heartbeat-alive { display: inline-block; width: 60px; height: 20px; vertical-align: middle; }
         .heartbeat-alive svg { width: 100%; height: 100%; }
         .heartbeat-alive .pulse { animation: heartbeat 1.4s infinite ease-in-out; stroke: #22c55e; stroke-width: 3; fill: none; }
         @keyframes heartbeat {
@@ -437,7 +437,7 @@ export default function Home() {
           40% { d: path("M0 10 L10 10 L13 4 L17 16 L21 10 L35 10"); }
           60% { d: path("M0 10 L10 10 L14 6 L18 14 L22 10 L35 10"); }
         }
-        .flatline-dead { display: inline-block; width: 60px; height: 20px; margin-left: 8px; vertical-align: middle; border-bottom: 3px solid #ef4444; }
+        .flatline-dead { display: inline-block; width: 60px; height: 3px; background-color: #ef4444; vertical-align: middle; }
       `}</style>
 
       <LiveTicker />
@@ -510,7 +510,7 @@ export default function Home() {
               <table className="bg-white rounded-lg shadow overflow-hidden w-full">
                 <thead className="bg-[#2A6A5E] text-white">
                   <tr>
-                    <th className="py-4 px-4 text-left">Name</th>
+                    <th className="py-4 px-4 text-center">Name</th>
                     <th className="py-4 px-4 text-center">Status</th>
                     {TEST_DATES.map((dateStr) => (
                       <th key={dateStr} className="py-4 px-4 text-center text-sm">{formatLabel(dateStr)}</th>
@@ -524,25 +524,29 @@ export default function Home() {
 
                     return (
                       <tr key={user.name} className={`border-b hover:bg-gray-50 ${isDead ? 'bg-red-50 opacity-80' : ''}`}>
-                        <td className={`py-3 px-4 font-medium ${isDead ? 'text-red-600 line-through' : 'text-gray-800'}`}>
-                          {user.name}
+                        {/* Full name, centered */}
+                        <td className={`py-3 px-4 font-medium text-center ${isDead ? 'text-red-600 line-through' : 'text-gray-800'}`}>
+                          {user.fullName}
                         </td>
-                        <td className="py-3 px-4 text-center">
-                          {isDead ? (
-                            <>
-                              <span className="text-red-600 font-bold">Dead</span>
-                              <div className="flatline-dead" />
-                            </>
-                          ) : (
-                            <>
-                              <span className="text-green-600 font-bold">Alive</span>
-                              <div className="heartbeat-alive">
-                                <svg viewBox="0 0 35 20">
-                                  <path className="pulse" d="M0 10 L10 10 L15 2 L20 18 L25 10 L35 10" />
-                                </svg>
-                              </div>
-                            </>
-                          )}
+                        {/* Status centered with flatline perfectly vertically centered */}
+                        <td className="py-3 px-4">
+                          <div className="flex items-center justify-center gap-2">
+                            {isDead ? (
+                              <>
+                                <span className="text-red-600 font-bold">Dead</span>
+                                <div className="flatline-dead" />
+                              </>
+                            ) : (
+                              <>
+                                <span className="text-green-600 font-bold">Alive</span>
+                                <div className="heartbeat-alive">
+                                  <svg viewBox="0 0 35 20">
+                                    <path className="pulse" d="M0 10 L10 10 L15 2 L20 18 L25 10 L35 10" />
+                                  </svg>
+                                </div>
+                              </>
+                            )}
+                          </div>
                         </td>
                         {TEST_DATES.map((dateStr, i) => {
                           const r = `Day ${i + 1}`;
@@ -557,9 +561,16 @@ export default function Home() {
                           let display: any = pickTeam;
 
                           if (pickTeam !== '—') {
-                            if (pickObj?.status === 'won') cellClass = 'bg-green-100 text-green-800 font-bold';
-                            else if (pickObj?.status === 'eliminated') cellClass = 'bg-red-100 text-red-800 font-bold line-through';
-                            else cellClass = 'bg-yellow-100 text-yellow-800';
+                            if (isDead) {
+                              // Eliminated user — all picks shown in red
+                              cellClass = 'bg-red-100 text-red-800 font-bold line-through';
+                            } else if (pickObj?.status === 'won') {
+                              cellClass = 'bg-green-100 text-green-800 font-bold';
+                            } else if (pickObj?.status === 'eliminated') {
+                              cellClass = 'bg-red-100 text-red-800 font-bold line-through';
+                            } else {
+                              cellClass = 'bg-yellow-100 text-yellow-800';
+                            }
                           } else if (i === currentDayIndex && picksRevealed) {
                             display = <span className="text-red-600 font-bold">SHAME</span>;
                             cellClass = 'bg-red-50';
