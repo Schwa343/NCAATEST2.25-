@@ -559,17 +559,17 @@ export default function Home() {
                           let display: any = pickTeam;
 
                           if (pickTeam !== '—' && pickTeam !== '') {
-                            if (isDead) {
-                              cellClass = 'bg-red-100 text-red-800 font-bold line-through';
-                            } else if (pickObj?.status === 'won') {
+                            if (pickObj?.status === 'won') {
                               cellClass = 'bg-green-100 text-green-800 font-bold';
                             } else if (pickObj?.status === 'eliminated') {
                               cellClass = 'bg-red-100 text-red-800 font-bold line-through';
+                            } else if (isDead) {
+                              // Still pending but user is dead from a later day — show neutral
+                              cellClass = 'bg-gray-100 text-gray-500 font-bold';
                             } else {
                               cellClass = 'bg-yellow-100 text-yellow-800';
                             }
                           } else if (picksRevealed && (pickTeam === '—' || pickTeam === '')) {
-                            // No pick submitted — show SHAME on all revealed days, not just current tab
                             display = <span className="text-red-600 font-bold">SHAME</span>;
                             cellClass = 'bg-red-50';
                           }
