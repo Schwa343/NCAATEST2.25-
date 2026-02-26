@@ -438,8 +438,8 @@ export default function Home() {
         <p className="text-xl text-gray-700 text-center mb-8 max-w-2xl">Pick one team per day — no repeats — last one standing wins</p>
 
         <div className="flex justify-center gap-4 mb-8">
-          <input placeholder="First Name" value={firstName} onChange={e => setFirstName(e.target.value)} className="px-4 py-2 border rounded w-52" />
-          <input placeholder="L" maxLength={1} value={lastInitial} onChange={e => setLastInitial(e.target.value.toUpperCase().slice(0, 1))} className="w-14 text-center px-2 py-2 border rounded" />
+        <input placeholder="First Name" value={firstName} onChange={e => setFirstName(e.target.value)} className="px-4 py-2 border rounded w-52 text-gray-900 bg-white" />
+        <input placeholder="L" maxLength={1} value={lastInitial} onChange={e => setLastInitial(e.target.value.toUpperCase().slice(0, 1))} className="w-14 text-center px-2 py-2 border rounded text-gray-900 bg-white" />
         </div>
 
         {isAdmin && <p className="text-center text-purple-700 font-bold mb-6">ADMIN MODE ACTIVE — click any pick cell to edit</p>}
@@ -509,7 +509,7 @@ export default function Home() {
                 <tbody>
                   {allUsers.map(user => {
                     const isMe = user.name === shortName;
-                    const visible = (isMe && hasSubmittedThisSession) || isAdmin;
+                    const visible = (isMe && hasSubmittedThisSession) || dayLocked || isAdmin;
                     const isDead = user.status === 'eliminated';
 
                     return (
