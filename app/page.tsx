@@ -78,7 +78,6 @@ function getShortName(full: string): string {
   return `${first.charAt(0).toUpperCase() + first.slice(1).toLowerCase()} ${rest[rest.length - 1][0].toUpperCase()}`;
 }
 
-// Returns true if the reveal time for a given date has passed
 function isRevealed(dateStr: string): boolean {
   const t = REVEAL_TIMES[dateStr];
   if (!t) return false;
@@ -302,24 +301,23 @@ export default function Home() {
     });
   }, [scoreboard, allUsers]);
 
-  // Auto-eliminate users who missed a pick (SHAME) after reveal time passes
+  // Auto-eliminate users who missed a pick after reveal time passes
   useEffect(() => {
     if (!allUsers.length) return;
     TEST_DATES.forEach(async (dateStr, i) => {
       if (!isRevealed(dateStr)) return;
-      const round = `Day ${i + 1}`;
+      const r = `Day ${i + 1}`;
       for (const user of allUsers) {
         if (user.status === 'eliminated') continue;
-        const hasPick = user.picks.some((p: Pick) => p.round === round);
+        const hasPick = user.picks.some((p: Pick) => p.round === r && p.team);
         if (hasPick) continue;
-        // No pick for this revealed day — eliminate them
-        const q = query(collection(db, 'picks'), where('name', '==', user.name), where('round', '==', round));
+        const q = query(collection(db, 'picks'), where('name', '==', user.name), where('round', '==', r));
         const snap = await getDocs(q);
         if (snap.empty) {
           await addDoc(collection(db, 'picks'), {
             name: user.name,
             team: '',
-            round,
+            round: r,
             timestamp: serverTimestamp(),
             createdAt: new Date().toISOString(),
             status: 'eliminated',
@@ -551,25 +549,26 @@ export default function Home() {
                         {TEST_DATES.map((dateStr, i) => {
                           const r = `Day ${i + 1}`;
                           const pickObj = user.picks.find((p: Pick) => p.round === r);
-                          const pickTeam = pickObj?.team || '—';
+                          const pickTeam = pickObj?.team || '';
                           const picksRevealed = isRevealed(dateStr);
                           const visible = (isMe && hasSubmittedThisSession) || picksRevealed || isAdmin;
 
-                          let cellClass = 'bg-red-100 text-red-800 font-bold line-through';
-                          let display: any = pickTeam;
+                          // Default: unrevealed cell
+                          let cellClass = isDead ? 'bg-red-100 text-red-800 font-bold' : 'bg-gray-50 text-gray-400';
+                          let display: any = pickTeam || '—';
 
-                          if (pickTeam !== '—' && pickTeam !== '') {
+                          if (pickTeam) {
                             if (pickObj?.status === 'won') {
+                              // Won while alive — always green regardless of later elimination
                               cellClass = 'bg-green-100 text-green-800 font-bold';
-                            } else if (pickObj?.status === 'eliminated') {
-                              cellClass = 'bg-red-100 text-red-800 font-bold line-through';
-                            } else if (isDead) {
-                              // Still pending but user is dead from a later day — show neutral
-                              cellClass = 'bg-gray-100 text-gray-500 font-bold';
                             } else {
-                              cellClass = 'bg-yellow-100 text-yellow-800';
+                              // Lost, pending-but-dead, or pending-but-alive
+                              cellClass = isDead
+                                ? 'bg-red-100 text-red-800 font-bold line-through'
+                                : 'bg-yellow-100 text-yellow-800';
                             }
-                          } else if (picksRevealed && (pickTeam === '—' || pickTeam === '')) {
+                          } else if (picksRevealed) {
+                            // No pick submitted and day is revealed — SHAME
                             display = <span className="text-red-600 font-bold">SHAME</span>;
                             cellClass = 'bg-red-50';
                           }
@@ -579,7 +578,7 @@ export default function Home() {
                           return (
                             <td
                               key={i}
-                              className={`py-3 px-4 text-center text-sm font-semibold cursor-pointer ${visible ? cellClass : 'bg-gray-200 text-transparent blur-sm'}`}
+                              className={`py-3 px-4 text-center text-sm font-semibold cursor-pointer ${visible ? cellClass : isDead ? 'bg-red-100 text-red-800' : 'bg-gray-200 text-transparent blur-sm'}`}
                               onClick={() => { if (isAdmin && !isEditing) setEditingCell({ name: user.name, round: r }); }}
                             >
                               {isEditing ? (
