@@ -52,6 +52,17 @@ const TEST_DATES = [
   '2026-03-01',
 ];
 
+// Edit these times to control when picks reveal each day.
+// Format is UTC time — noon EST = 17:00:00Z, noon EDT = 16:00:00Z
+// For later tip-offs e.g. 3pm EDT = 19:00:00Z, 7pm EDT = 23:00:00Z
+const REVEAL_TIMES: Record<string, string> = {
+  '2026-02-25': '2026-02-25T17:00:00Z',
+  '2026-02-26': '2026-02-26T17:00:00Z',
+  '2026-02-27': '2026-02-27T17:00:00Z',
+  '2026-02-28': '2026-02-28T17:00:00Z',
+  '2026-03-01': '2026-03-01T17:00:00Z',
+};
+
 function formatLabel(dateStr: string) {
   const [y, m, d] = dateStr.split('-').map(Number);
   return new Date(y, m - 1, d).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
@@ -76,13 +87,14 @@ function LiveTicker() {
       const today = new Date();
       const formatDate = (d: Date) => d.toISOString().split('T')[0].replace(/-/g, '');
 
-      let allEvents: any[] = [];
       const res = await fetch(
         `https://site.api.espn.com/apis/site/v2/sports/basketball/mens-college-basketball/scoreboard?dates=${formatDate(today)}&groups=50&limit=500`
       );
+
+      let allEvents: any[] = [];
       if (res.ok) {
         const data = await res.json();
-        allEvents = [...allEvents, ...(data.events || [])];
+        allEvents = data.events || [];
       }
 
       const formatted = allEvents.map((e: any) => {
@@ -176,7 +188,6 @@ export default function Home() {
 
   const currentDateStr = TEST_DATES[currentDayIndex];
   const round = `Day ${currentDayIndex + 1}`;
-
   const shortName = `${firstName.trim().charAt(0).toUpperCase() + firstName.trim().slice(1).toLowerCase()} ${lastInitial.trim().toUpperCase()}`.trim();
 
   useEffect(() => {
@@ -438,8 +449,8 @@ export default function Home() {
         <p className="text-xl text-gray-700 text-center mb-8 max-w-2xl">Pick one team per day — no repeats — last one standing wins</p>
 
         <div className="flex justify-center gap-4 mb-8">
-        <input placeholder="First Name" value={firstName} onChange={e => setFirstName(e.target.value)} className="px-4 py-2 border rounded w-52 text-gray-900 bg-white" />
-        <input placeholder="L" maxLength={1} value={lastInitial} onChange={e => setLastInitial(e.target.value.toUpperCase().slice(0, 1))} className="w-14 text-center px-2 py-2 border rounded text-gray-900 bg-white" />
+          <input placeholder="First Name" value={firstName} onChange={e => setFirstName(e.target.value)} className="px-4 py-2 border rounded w-52 text-gray-900 bg-white" />
+          <input placeholder="L" maxLength={1} value={lastInitial} onChange={e => setLastInitial(e.target.value.toUpperCase().slice(0, 1))} className="w-14 text-center px-2 py-2 border rounded text-gray-900 bg-white" />
         </div>
 
         {isAdmin && <p className="text-center text-purple-700 font-bold mb-6">ADMIN MODE ACTIVE — click any pick cell to edit</p>}
@@ -509,7 +520,6 @@ export default function Home() {
                 <tbody>
                   {allUsers.map(user => {
                     const isMe = user.name === shortName;
-                    const visible = (isMe && hasSubmittedThisSession) || dayLocked || isAdmin;
                     const isDead = user.status === 'eliminated';
 
                     return (
@@ -534,10 +544,14 @@ export default function Home() {
                             </>
                           )}
                         </td>
-                        {TEST_DATES.map((_, i) => {
+                        {TEST_DATES.map((dateStr, i) => {
                           const r = `Day ${i + 1}`;
                           const pickObj = user.picks.find((p: Pick) => p.round === r);
                           const pickTeam = pickObj?.team || '—';
+
+                          const revealTime = REVEAL_TIMES[dateStr] ? new Date(REVEAL_TIMES[dateStr]) : null;
+                          const picksRevealed = revealTime ? new Date() >= revealTime : false;
+                          const visible = (isMe && hasSubmittedThisSession) || picksRevealed || isAdmin;
 
                           let cellClass = 'bg-gray-50 text-gray-400';
                           let display: any = pickTeam;
@@ -546,7 +560,7 @@ export default function Home() {
                             if (pickObj?.status === 'won') cellClass = 'bg-green-100 text-green-800 font-bold';
                             else if (pickObj?.status === 'eliminated') cellClass = 'bg-red-100 text-red-800 font-bold line-through';
                             else cellClass = 'bg-yellow-100 text-yellow-800';
-                          } else if (i === currentDayIndex && dayLocked) {
+                          } else if (i === currentDayIndex && picksRevealed) {
                             display = <span className="text-red-600 font-bold">SHAME</span>;
                             cellClass = 'bg-red-50';
                           }
