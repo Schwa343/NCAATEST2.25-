@@ -319,14 +319,16 @@ export default function Home() {
   )).sort((a, b) => a.localeCompare(b));
 
   const firstTipOff = dayGames
-    .filter(g => g.startTime)
-    .map(g => new Date(g.startTime!))
-    .sort((a, b) => a.getTime() - b.getTime())[0];
+      .filter(g => g.startTime)
+      .map(g => new Date(g.startTime!))
+     .sort((a, b) => a.getTime() - b.getTime())[0];
 
-  const [y, m, d] = currentDateStr.split('-').map(Number);
-  const fallbackNoon = new Date(y, m - 1, d, 12, 0, 0, 0);
-  const lockTime = firstTipOff ?? fallbackNoon;
-  const dayLocked = new Date() >= lockTime;
+            // Use REVEAL_TIMES as the lock time too — same moment picks reveal is same moment picks lock
+    const revealTimeForToday = REVEAL_TIMES[currentDateStr] ? new Date(REVEAL_TIMES[currentDateStr]) : null;
+    const [y, m, d] = currentDateStr.split('-').map(Number);
+    const fallbackNoon = new Date(Date.UTC(y, m - 1, d, 17, 0, 0));
+    const lockTime = revealTimeForToday ?? firstTipOff ?? fallbackNoon;
+    const dayLocked = new Date() >= lockTime;
 
   const myUser = allUsers.find(u => u.name === shortName);
   const isEliminated = myUser?.status === 'eliminated';
