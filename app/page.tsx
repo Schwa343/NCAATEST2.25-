@@ -52,7 +52,7 @@ const TEST_DATES = [
   '2026-03-01',
 ];
 
-// Edit these times to control when picks reveal each day.
+// Edit these times to control when picks reveal AND lock each day.
 // Format is UTC time — noon EST = 17:00:00Z, noon EDT = 16:00:00Z
 // For later tip-offs e.g. 3pm EDT = 19:00:00Z, 7pm EDT = 23:00:00Z
 const REVEAL_TIMES: Record<string, string> = {
@@ -78,6 +78,13 @@ function getShortName(full: string): string {
   return `${first.charAt(0).toUpperCase() + first.slice(1).toLowerCase()} ${rest[rest.length - 1][0].toUpperCase()}`;
 }
 
+// Returns true if the reveal time for a given date has passed
+function isRevealed(dateStr: string): boolean {
+  const t = REVEAL_TIMES[dateStr];
+  if (!t) return false;
+  return new Date() >= new Date(t);
+}
+
 function LiveTicker() {
   const [games, setGames] = useState<Game[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -86,17 +93,14 @@ function LiveTicker() {
     try {
       const today = new Date();
       const formatDate = (d: Date) => d.toISOString().split('T')[0].replace(/-/g, '');
-
       const res = await fetch(
         `https://site.api.espn.com/apis/site/v2/sports/basketball/mens-college-basketball/scoreboard?dates=${formatDate(today)}&groups=50&limit=500`
       );
-
       let allEvents: any[] = [];
       if (res.ok) {
         const data = await res.json();
         allEvents = data.events || [];
       }
-
       const formatted = allEvents.map((e: any) => {
         const comp = e.competitions?.[0];
         if (!comp) return null;
@@ -123,7 +127,6 @@ function LiveTicker() {
           startTime: comp.date,
         };
       }).filter(Boolean) as Game[];
-
       const todayStr = new Date().toLocaleDateString('en-CA');
       setGames(formatted.filter(g => {
         const desc = g.status.toLowerCase();
@@ -205,7 +208,6 @@ export default function Home() {
           }
         } catch {}
       }
-
       const games = events.map((e: any) => {
         const comp = e.competitions?.[0];
         const home = comp?.competitors?.find((c: any) => c.homeAway === 'home');
@@ -231,10 +233,8 @@ export default function Home() {
           startTime: comp.date,
         };
       }).filter(Boolean) as Game[];
-
       setScoreboard(games);
     };
-
     fetchScores();
     const interval = setInterval(fetchScores, 90000);
     return () => clearInterval(interval);
@@ -250,7 +250,6 @@ export default function Home() {
         if (!grouped.has(p.name)) grouped.set(p.name, []);
         grouped.get(p.name)!.push(p);
       });
-
       const users = participantFullNames.map(fullName => {
         const short = getShortName(fullName);
         const existing = grouped.get(short) || [];
@@ -261,44 +260,36 @@ export default function Home() {
           status: existing.some((p: Pick) => p.status === 'eliminated') ? 'eliminated' : 'alive',
         };
       });
-
       setAllUsers(users);
       setLoading(false);
-
       const me = users.find(u => u.name === shortName);
       if (me) setUsedTeams(me.picks.map((p: Pick) => p.team).filter(Boolean));
     });
     return unsub;
   }, [shortName]);
 
+  // Auto-detect wins/losses from final scores
   useEffect(() => {
     if (!scoreboard.length || !allUsers.length) return;
-
     allUsers.forEach(user => {
       user.picks.forEach(async (pick: Pick) => {
         if (pick.status && pick.status !== 'pending') return;
-
         const dayIdx = TEST_DATES.findIndex((_, i) => `Day ${i + 1}` === pick.round);
         if (dayIdx === -1) return;
         const pickDateStr = TEST_DATES[dayIdx];
-
         const game = scoreboard.find(g =>
           g.date === pickDateStr &&
           (normalizeTeamName(g.homeTeam.name).includes(normalizeTeamName(pick.team)) ||
             normalizeTeamName(g.awayTeam.name).includes(normalizeTeamName(pick.team)))
         );
-
         if (!game) return;
         const isFinal = game.status.toLowerCase().includes('final') || game.status.toLowerCase().includes('end');
         if (!isFinal) return;
-
         const h = Number(game.homeTeam.score) || 0;
         const a = Number(game.awayTeam.score) || 0;
         if (h === 0 && a === 0) return;
-
         const isHome = normalizeTeamName(game.homeTeam.name).includes(normalizeTeamName(pick.team));
         const won = isHome ? h > a : a > h;
-
         const q = query(collection(db, 'picks'), where('name', '==', user.name), where('round', '==', pick.round));
         const snap = await getDocs(q);
         if (!snap.empty) {
@@ -311,6 +302,33 @@ export default function Home() {
     });
   }, [scoreboard, allUsers]);
 
+  // Auto-eliminate users who missed a pick (SHAME) after reveal time passes
+  useEffect(() => {
+    if (!allUsers.length) return;
+    TEST_DATES.forEach(async (dateStr, i) => {
+      if (!isRevealed(dateStr)) return;
+      const round = `Day ${i + 1}`;
+      for (const user of allUsers) {
+        if (user.status === 'eliminated') continue;
+        const hasPick = user.picks.some((p: Pick) => p.round === round);
+        if (hasPick) continue;
+        // No pick for this revealed day — eliminate them
+        const q = query(collection(db, 'picks'), where('name', '==', user.name), where('round', '==', round));
+        const snap = await getDocs(q);
+        if (snap.empty) {
+          await addDoc(collection(db, 'picks'), {
+            name: user.name,
+            team: '',
+            round,
+            timestamp: serverTimestamp(),
+            createdAt: new Date().toISOString(),
+            status: 'eliminated',
+          });
+        }
+      }
+    });
+  }, [allUsers]);
+
   const dayGames = scoreboard.filter(g => g.date === currentDateStr);
   const availableTeams = Array.from(new Set(
     dayGames
@@ -318,17 +336,11 @@ export default function Home() {
       .flatMap(g => [g.homeTeam.name, g.awayTeam.name].filter(Boolean))
   )).sort((a, b) => a.localeCompare(b));
 
-  const firstTipOff = dayGames
-      .filter(g => g.startTime)
-      .map(g => new Date(g.startTime!))
-     .sort((a, b) => a.getTime() - b.getTime())[0];
-
-            // Use REVEAL_TIMES as the lock time too — same moment picks reveal is same moment picks lock
-    const revealTimeForToday = REVEAL_TIMES[currentDateStr] ? new Date(REVEAL_TIMES[currentDateStr]) : null;
-    const [y, m, d] = currentDateStr.split('-').map(Number);
-    const fallbackNoon = new Date(Date.UTC(y, m - 1, d, 17, 0, 0));
-    const lockTime = revealTimeForToday ?? firstTipOff ?? fallbackNoon;
-    const dayLocked = new Date() >= lockTime;
+  const revealTimeForToday = REVEAL_TIMES[currentDateStr] ? new Date(REVEAL_TIMES[currentDateStr]) : null;
+  const [y, m, d] = currentDateStr.split('-').map(Number);
+  const fallbackNoon = new Date(Date.UTC(y, m - 1, d, 17, 0, 0));
+  const lockTime = revealTimeForToday ?? fallbackNoon;
+  const dayLocked = new Date() >= lockTime;
 
   const myUser = allUsers.find(u => u.name === shortName);
   const isEliminated = myUser?.status === 'eliminated';
@@ -338,7 +350,6 @@ export default function Home() {
       setStatusMessage('First name + one initial required');
       return;
     }
-
     if (shortName.toLowerCase() === 'stanley s') {
       setIsAdmin(true);
       setHasSubmittedThisSession(true);
@@ -346,28 +357,23 @@ export default function Home() {
       setFirstName(''); setLastInitial('');
       return;
     }
-
     const allowed = participantFullNames.some(f => getShortName(f) === shortName);
     if (!allowed) {
       setStatusMessage('Name not recognized — check spelling');
       return;
     }
-
     const user = allUsers.find(u => u.name === shortName);
     if (user?.status === 'eliminated') {
       setStatusMessage('You are eliminated');
       return;
     }
-
     if (new Date() >= lockTime) {
       setStatusMessage('Picks locked — first game has tipped off');
       return;
     }
-
     try {
       const q = query(collection(db, 'picks'), where('name', '==', shortName), where('round', '==', round));
       const existing = await getDocs(q);
-
       if (!existing.empty) {
         await updateDoc(doc(db, 'picks', existing.docs[0].id), {
           team: selectedTeam,
@@ -383,7 +389,6 @@ export default function Home() {
           status: 'pending',
         });
       }
-
       setStatusMessage(`Saved: ${selectedTeam}`);
       setSelectedTeam('');
       setHasSubmittedThisSession(true);
@@ -394,21 +399,17 @@ export default function Home() {
 
   const handleAdminEdit = async (userName: string, editRound: string, newTeam: string) => {
     if (!newTeam) { setEditingCell(null); return; }
-
     const user = allUsers.find(u => u.name === userName);
     if (!user) return;
-
     const alreadyUsed = user.picks.some((p: Pick) => p.team === newTeam && p.round !== editRound);
     if (alreadyUsed) {
       setStatusMessage(`Cannot assign ${newTeam} — already used by ${userName} on another day`);
       setEditingCell(null);
       return;
     }
-
     try {
       const q = query(collection(db, 'picks'), where('name', '==', userName), where('round', '==', editRound));
       const existing = await getDocs(q);
-
       if (!existing.empty) {
         await updateDoc(doc(db, 'picks', existing.docs[0].id), { team: newTeam, timestamp: serverTimestamp() });
       } else {
@@ -417,7 +418,6 @@ export default function Home() {
           timestamp: serverTimestamp(), createdAt: new Date().toISOString(), status: 'pending',
         });
       }
-
       setStatusMessage(`Updated ${userName}'s ${editRound} to ${newTeam}`);
       setTimeout(() => setStatusMessage(''), 3000);
     } catch (err: any) {
@@ -526,11 +526,9 @@ export default function Home() {
 
                     return (
                       <tr key={user.name} className={`border-b hover:bg-gray-50 ${isDead ? 'bg-red-50 opacity-80' : ''}`}>
-                        {/* Full name, centered */}
                         <td className={`py-3 px-4 font-medium text-center ${isDead ? 'text-red-600 line-through' : 'text-gray-800'}`}>
                           {user.fullName}
                         </td>
-                        {/* Status centered with flatline perfectly vertically centered */}
                         <td className="py-3 px-4">
                           <div className="flex items-center justify-center gap-2">
                             {isDead ? (
@@ -554,17 +552,14 @@ export default function Home() {
                           const r = `Day ${i + 1}`;
                           const pickObj = user.picks.find((p: Pick) => p.round === r);
                           const pickTeam = pickObj?.team || '—';
-
-                          const revealTime = REVEAL_TIMES[dateStr] ? new Date(REVEAL_TIMES[dateStr]) : null;
-                          const picksRevealed = revealTime ? new Date() >= revealTime : false;
+                          const picksRevealed = isRevealed(dateStr);
                           const visible = (isMe && hasSubmittedThisSession) || picksRevealed || isAdmin;
 
                           let cellClass = 'bg-gray-50 text-gray-400';
                           let display: any = pickTeam;
 
-                          if (pickTeam !== '—') {
+                          if (pickTeam !== '—' && pickTeam !== '') {
                             if (isDead) {
-                              // Eliminated user — all picks shown in red
                               cellClass = 'bg-red-100 text-red-800 font-bold line-through';
                             } else if (pickObj?.status === 'won') {
                               cellClass = 'bg-green-100 text-green-800 font-bold';
@@ -573,7 +568,8 @@ export default function Home() {
                             } else {
                               cellClass = 'bg-yellow-100 text-yellow-800';
                             }
-                          } else if (i === currentDayIndex && picksRevealed) {
+                          } else if (picksRevealed && (pickTeam === '—' || pickTeam === '')) {
+                            // No pick submitted — show SHAME on all revealed days, not just current tab
                             display = <span className="text-red-600 font-bold">SHAME</span>;
                             cellClass = 'bg-red-50';
                           }
