@@ -555,7 +555,7 @@ export default function Home() {
                           const picksRevealed = isRevealed(dateStr);
                           const visible = (isMe && hasSubmittedThisSession) || picksRevealed || isAdmin;
 
-                          let cellClass = 'bg-gray-50 text-gray-400';
+                          let cellClass = 'bg-red-100 text-red-800 font-bold line-through';
                           let display: any = pickTeam;
 
                           if (pickTeam !== '—' && pickTeam !== '') {
