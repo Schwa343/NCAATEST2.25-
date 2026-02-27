@@ -568,9 +568,13 @@ export default function Home() {
                                 : 'bg-yellow-100 text-yellow-800';
                             }
                           } else if (picksRevealed) {
-                            // No pick submitted and day is revealed — SHAME
-                            display = <span className="text-red-600 font-bold">SHAME</span>;
-                            cellClass = 'bg-red-50';
+                            if (isDead) {
+                              display = <span className="text-red-800 font-bold select-none">——</span>;
+                              cellClass = 'bg-red-100';
+                            } else {
+                              display = <span className="text-red-600 font-bold">SHAME</span>;
+                              cellClass = 'bg-red-50';
+                            }
                           }
 
                           const isEditing = isAdmin && editingCell?.name === user.name && editingCell?.round === r;
