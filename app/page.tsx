@@ -45,22 +45,21 @@ const participantFullNames = [
 ];
 
 const TEST_DATES = [
-  '2026-02-25',
-  '2026-02-26',
-  '2026-02-27',
-  '2026-02-28',
-  '2026-03-01',
+  '2026-03-02',
+  '2026-03-03',
+  '2026-03-04',
+  '2026-03-05',
+  '2026-03-06',
 ];
 
 // Edit these times to control when picks reveal AND lock each day.
 // Format is UTC time — noon EST = 17:00:00Z, noon EDT = 16:00:00Z
-// For later tip-offs e.g. 3pm EDT = 19:00:00Z, 7pm EDT = 23:00:00Z
 const REVEAL_TIMES: Record<string, string> = {
-  '2026-02-25': '2026-02-25T17:00:00Z',
-  '2026-02-26': '2026-02-26T17:00:00Z',
-  '2026-02-27': '2026-02-27T17:00:00Z',
-  '2026-02-28': '2026-02-28T17:00:00Z',
-  '2026-03-01': '2026-03-01T17:00:00Z',
+  '2026-03-02': '2026-03-02T17:00:00Z',
+  '2026-03-03': '2026-03-03T17:00:00Z',
+  '2026-03-04': '2026-03-04T17:00:00Z',
+  '2026-03-05': '2026-03-05T17:00:00Z',
+  '2026-03-06': '2026-03-06T17:00:00Z',
 };
 
 function formatLabel(dateStr: string) {
@@ -301,31 +300,7 @@ export default function Home() {
     });
   }, [scoreboard, allUsers]);
 
-  // Auto-eliminate users who missed a pick after reveal time passes
-  useEffect(() => {
-    if (!allUsers.length) return;
-    TEST_DATES.forEach(async (dateStr, i) => {
-      if (!isRevealed(dateStr)) return;
-      const r = `Day ${i + 1}`;
-      for (const user of allUsers) {
-        if (user.status === 'eliminated') continue;
-        const hasPick = user.picks.some((p: Pick) => p.round === r && p.team);
-        if (hasPick) continue;
-        const q = query(collection(db, 'picks'), where('name', '==', user.name), where('round', '==', r));
-        const snap = await getDocs(q);
-        if (snap.empty) {
-          await addDoc(collection(db, 'picks'), {
-            name: user.name,
-            team: '',
-            round: r,
-            timestamp: serverTimestamp(),
-            createdAt: new Date().toISOString(),
-            status: 'eliminated',
-          });
-        }
-      }
-    });
-  }, [allUsers]);
+  // NOTE: Removed auto-eliminate for missed picks — missing a pick no longer kills you.
 
   const dayGames = scoreboard.filter(g => g.date === currentDateStr);
   const availableTeams = Array.from(new Set(
@@ -522,6 +497,17 @@ export default function Home() {
                     const isMe = user.name === shortName;
                     const isDead = user.status === 'eliminated';
 
+                    // Find the round index where the user was eliminated
+                    // (the first pick with status === 'eliminated')
+                    const eliminatedAtRoundIndex = (() => {
+                      for (let i = 0; i < TEST_DATES.length; i++) {
+                        const r = `Day ${i + 1}`;
+                        const pick = user.picks.find((p: Pick) => p.round === r);
+                        if (pick?.status === 'eliminated') return i;
+      }
+                      return -1;
+                    })();
+
                     return (
                       <tr key={user.name} className={`border-b hover:bg-gray-50 ${isDead ? 'bg-red-50 opacity-80' : ''}`}>
                         <td className={`py-3 px-4 font-medium text-center ${isDead ? 'text-red-600 line-through' : 'text-gray-800'}`}>
@@ -553,24 +539,31 @@ export default function Home() {
                           const picksRevealed = isRevealed(dateStr);
                           const visible = (isMe && hasSubmittedThisSession) || picksRevealed || isAdmin;
 
-                          // Default: unrevealed cell
-                          let cellClass = isDead ? 'bg-red-100 text-red-800 font-bold' : 'bg-gray-50 text-gray-400';
+                          // If this day is AFTER the elimination round, show -Dead-
+                          const isPostElimination = eliminatedAtRoundIndex !== -1 && i > eliminatedAtRoundIndex;
+
+                          let cellClass = 'bg-gray-50 text-gray-400';
                           let display: any = pickTeam || '—';
 
-                          if (pickTeam) {
+                          if (isPostElimination) {
+                            // Override: this pick is moot, user was already dead
+                            cellClass = 'bg-red-100 text-red-500 italic';
+                            display = <span className="text-red-400 italic font-normal">-Dead-</span>;
+                          } else if (pickTeam) {
                             if (pickObj?.status === 'won') {
-                              // Won while alive — always green regardless of later elimination
                               cellClass = 'bg-green-100 text-green-800 font-bold';
+                            } else if (pickObj?.status === 'eliminated') {
+                              cellClass = 'bg-red-100 text-red-800 font-bold';
                             } else {
-                              // Lost, pending-but-dead, or pending-but-alive
+                              // pending
                               cellClass = isDead
-                                ? 'bg-red-100 text-red-800 font-bold line-through'
+                                ? 'bg-red-100 text-red-800 font-bold'
                                 : 'bg-yellow-100 text-yellow-800';
                             }
                           } else if (picksRevealed) {
-                            // No pick submitted and day is revealed — SHAME
-                            display = <span className="text-red-600 font-bold">SHAME</span>;
-                            cellClass = 'bg-red-50';
+                            // No pick submitted — show -No Pick- in grey, no elimination
+                            display = <span className="text-gray-400 italic font-normal">-No Pick-</span>;
+                            cellClass = 'bg-gray-50 text-gray-400';
                           }
 
                           const isEditing = isAdmin && editingCell?.name === user.name && editingCell?.round === r;
