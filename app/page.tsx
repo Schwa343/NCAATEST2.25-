@@ -420,7 +420,7 @@ export default function Home() {
       <main className="min-h-screen bg-[#f5f5f5] pt-28 pb-12 px-4 md:px-8 flex flex-col items-center">
         <Image src="https://upload.wikimedia.org/wikipedia/commons/2/28/March_Madness_logo.svg" alt="March Madness" width={400} height={200} className="mb-6 rounded-lg" priority />
 
-        <h1 className="text-4xl md:text-5xl font-bold text-[#2A6A5E] text-center mb-2">NCAA Survivor Pool</h1>
+        <h1 className="text-4xl md:text-5xl font-bold text-[#2A6A5E] text-center mb-2">NCAA Survivor League</h1>
         <p className="text-xl text-gray-700 text-center mb-8 max-w-2xl">Pick one team per day — no repeats — last one standing wins</p>
 
         <div className="flex justify-center gap-4 mb-8">
@@ -428,7 +428,7 @@ export default function Home() {
           <input placeholder="L" maxLength={1} value={lastInitial} onChange={e => setLastInitial(e.target.value.toUpperCase().slice(0, 1))} className="w-14 text-center px-2 py-2 border rounded text-gray-900 bg-white" />
         </div>
 
-        {isAdmin && <p className="text-center text-purple-700 font-bold mb-6">ADMIN MODE ACTIVE — click any pick cell to edit</p>}
+        {isAdmin && <p className="text-center text-purple-700 font-bold mb-6">SUPER SECRET ADMIN MODE ACTIVE</p>}
 
         <div className="flex flex-wrap justify-center gap-3 mb-8">
           {TEST_DATES.map((dateStr, i) => (
@@ -598,7 +598,7 @@ export default function Home() {
           </div>
         </div>
 
-        <footer className="mt-20 text-gray-600 text-sm text-center">Created by Mike Schwartz • Troy, MI</footer>
+        <footer className="mt-20 text-gray-600 text-sm text-center">Created by Mike Schwartz </footer>
       </main>
     </>
   );
