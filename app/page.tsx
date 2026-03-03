@@ -374,8 +374,7 @@ export default function Home() {
   const dayStr = dayDate.toLocaleDateString('en-CA');
 
   const dayGames = scoreboard.filter(g => g.date === dayStr);
-  const availableTeams = [...new Set(dayGames.flatMap(g => [g.homeTeam.name, g.awayTeam.name].filter(Boolean)))].sort((a,b)=>a.localeCompare(b));
-
+  const availableTeams = Array.from(new Set(dayGames.flatMap(g => [g.homeTeam.name, g.awayTeam.name].filter(Boolean)))).sort((a,b)=>a.localeCompare(b));
   const myUser = allUsers.find(u => u.name === shortName);
   const isEliminated = myUser?.status === 'eliminated';
 
