@@ -135,7 +135,7 @@ function LiveTicker() {
         {[...games, ...games].map((g, i) => (
           <span key={i} className="font-medium">
             {g.awayTeam.rank ? `#${g.awayTeam.rank} ` : ''}{g.awayTeam.name} {g.awayTeam.score} @
-            {g.homeTeam.rank ? `#${g.homeTeam.rank} ` : ''}{g.homeTeam.name} {g.homeTeam.score}
+            {g.homeTeam.rank ? ` #${g.homeTeam.rank} ` : ' '}{g.homeTeam.name} {g.homeTeam.score}
             <span className="text-yellow-300 ml-2 font-semibold">
               {g.status}{g.clock && g.clock !== '0:00' ? ` (${g.clock})` : ''}
             </span>
@@ -367,14 +367,44 @@ export default function Home() {
     setEditingCell(null);
   };
 
+  // Build a date string for any given day number relative to today
+  function getDateStrForDay(dayNum: number): string {
+    const d = new Date();
+    d.setDate(d.getDate() + (dayNum - 1));
+    return d.toLocaleDateString('en-CA');
+  }
+
+  // Get teams playing on a specific day number
+  function getTeamsForDay(dayNum: number): { name: string; rank: string | number }[] {
+    const dateStr = getDateStrForDay(dayNum);
+    const games = scoreboard.filter(g => g.date === dateStr);
+    const teamMap = new Map<string, string | number>();
+    games.forEach(g => {
+      teamMap.set(g.homeTeam.name, g.homeTeam.rank);
+      teamMap.set(g.awayTeam.name, g.awayTeam.rank);
+    });
+    return Array.from(teamMap.entries())
+      .map(([name, rank]) => ({ name, rank }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  // Get rank for a team name from the scoreboard
+  function getRankForTeam(teamName: string): string | number {
+    for (const g of scoreboard) {
+      if (g.homeTeam.name === teamName) return g.homeTeam.rank;
+      if (g.awayTeam.name === teamName) return g.awayTeam.rank;
+    }
+    return '';
+  }
+
   const today = new Date();
   const dayOffset = currentDay - 1;
   const dayDate = new Date(today);
   dayDate.setDate(today.getDate() + dayOffset);
-  const dayStr = dayDate.toLocaleDateString('en-CA');
 
-  const dayGames = scoreboard.filter(g => g.date === dayStr);
-  const availableTeams = Array.from(new Set(dayGames.flatMap(g => [g.homeTeam.name, g.awayTeam.name].filter(Boolean)))).sort((a,b)=>a.localeCompare(b));
+  const currentDayTeams = getTeamsForDay(currentDay);
+  const availableTeams = currentDayTeams.map(t => t.name);
+
   const myUser = allUsers.find(u => u.name === shortName);
   const isEliminated = myUser?.status === 'eliminated';
 
@@ -383,8 +413,14 @@ export default function Home() {
   const dayLocked = new Date() >= noon;
 
   const todayLabel = today.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-  const tomorrowLabel = new Date(today); tomorrowLabel.setDate(today.getDate() + 1);
-  const tomorrowStr = tomorrowLabel.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  const tomorrowDate = new Date(today); tomorrowDate.setDate(today.getDate() + 1);
+  const tomorrowStr = tomorrowDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+
+  // For admin dropdown: teams for the specific day being edited
+  function getAdminTeamsForRound(round: string): { name: string; rank: string | number }[] {
+    const dayNum = Number(round.replace('Day ', ''));
+    return getTeamsForDay(dayNum);
+  }
 
   return (
     <>
@@ -423,10 +459,10 @@ export default function Home() {
         </div>
 
         <div className="flex flex-wrap justify-center gap-3 max-w-5xl mb-10">
-          {availableTeams.length === 0 ? (
+          {currentDayTeams.length === 0 ? (
             <p className="text-gray-500 italic">No games found for this date yet...</p>
           ) : (
-            availableTeams.map(team => {
+            currentDayTeams.map(({ name: team, rank }) => {
               const disabled = usedTeams.includes(team) || dayLocked || isEliminated;
               return (
                 <button
@@ -435,7 +471,7 @@ export default function Home() {
                   disabled={disabled}
                   className={`px-6 py-3 border-2 border-[#2A6A5E] rounded-lg min-w-[160px] ${selectedTeam === team ? 'bg-[#2A6A5E] text-white shadow-md' : 'bg-white text-[#2A6A5E] hover:bg-gray-50'} ${disabled ? 'opacity-60 line-through bg-gray-100 cursor-not-allowed' : ''}`}
                 >
-                  {team}
+                  {rank ? <span className="font-bold mr-1">#{rank}</span> : null}{team}
                 </button>
               );
             })
@@ -499,9 +535,12 @@ export default function Home() {
                           const round = `Day ${d}`;
                           const pickObj = user.picks.find((p: Pick) => p.round === round);
                           const pickTeam = pickObj?.team || '—';
+                          const pickRank = pickTeam !== '—' ? getRankForTeam(pickTeam) : '';
 
                           let cellClass = 'bg-gray-50 text-gray-500';
-                          let display = pickTeam;
+                          let display: React.ReactNode = pickTeam !== '—'
+                            ? <>{pickRank ? <span className="font-bold mr-1">#{pickRank}</span> : null}{pickTeam}</>
+                            : '—';
 
                           if (pickTeam !== '—') {
                             if (pickObj?.status === 'won') cellClass = 'bg-green-100 text-green-800 font-bold';
@@ -513,6 +552,7 @@ export default function Home() {
                           }
 
                           const isEditing = isAdmin && editingCell?.name === user.name && editingCell?.round === round;
+                          const adminTeams = getAdminTeamsForRound(round);
 
                           return (
                             <td
@@ -533,8 +573,8 @@ export default function Home() {
                                   className="w-full text-center border border-gray-300 rounded px-2 py-1 bg-white"
                                 >
                                   <option value="">— Clear —</option>
-                                  {availableTeams.map(t => (
-                                    <option key={t} value={t}>{t}</option>
+                                  {adminTeams.map(({ name: t, rank: r }) => (
+                                    <option key={t} value={t}>{r ? `#${r} ` : ''}{t}</option>
                                   ))}
                                 </select>
                               ) : visible ? (
