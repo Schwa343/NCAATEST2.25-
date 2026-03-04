@@ -452,22 +452,17 @@ export default function Home() {
         thead .col-name {
           z-index: 20;
         }
-        /* Scroll-shadow hint on the right edge of the name column */
-        .col-name::after {
-          content: '';
-          position: absolute;
-          top: 0; right: -10px; bottom: 0;
-          width: 10px;
-          background: linear-gradient(to right, rgba(0,0,0,0.10), transparent);
-          pointer-events: none;
-        }
 
-        /* ── My row highlight ── */
+        /* ── My row highlight — yellow border only ── */
         tr.my-row td {
-          background-color: #fefce8 !important;
+          border-top: 3px solid #eab308 !important;
+          border-bottom: 3px solid #eab308 !important;
         }
-        tr.my-row {
-          box-shadow: inset 0 0 0 2px #eab308;
+        tr.my-row td:first-child {
+          border-left: 3px solid #eab308;
+        }
+        tr.my-row td:last-child {
+          border-right: 3px solid #eab308;
         }
 
         /* ── Dead row sticky bg ── */
@@ -715,3 +710,4 @@ export default function Home() {
     </>
   );
 }
+
