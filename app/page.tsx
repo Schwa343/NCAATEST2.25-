@@ -81,13 +81,6 @@ function isRevealed(dateStr: string): boolean {
   return new Date() >= new Date(t);
 }
 
-function getRankLabel(rank: string | number): string {
-  if (rank === '' || rank === undefined || rank === null) return '';
-  const n = Number(rank);
-  if (!isNaN(n) && n >= 1 && n <= 25) return `#${n} `;
-  return '';
-}
-
 function LiveTicker() {
   const [games, setGames] = useState<Game[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -328,11 +321,9 @@ export default function Home() {
     });
   }, [scoreboard, allUsers]);
 
-  // Build matchup pairs for the current day — ranked teams grouped with their opponent
   const dayGames = scoreboard.filter(g => g.date === currentDateStr);
   const rankedMatchups = dayGames.filter(g => g.homeTeam.rank || g.awayTeam.rank);
 
-  // Build a lookup: teamName -> rank
   const teamRankMap = new Map<string, string | number>();
   scoreboard.forEach(g => {
     if (g.homeTeam.rank) teamRankMap.set(g.homeTeam.name, g.homeTeam.rank);
@@ -429,26 +420,68 @@ export default function Home() {
     setEditingCell(null);
   };
 
-  // For admin dropdown — flat sorted list with rank labels
   const availableTeamsForAdmin = Array.from(new Set(
     rankedMatchups.flatMap(g => [g.homeTeam.name, g.awayTeam.name].filter(Boolean))
   )).sort((a, b) => a.localeCompare(b));
+
+  // Width of sticky columns — must match minWidth in the th/td below
+  const NAME_W = 88;
+  const STATUS_W = 86;
 
   return (
     <>
       <style jsx global>{`
         @keyframes marquee { 0% { transform: translateX(0); } 100% { transform: translateX(-50%); } }
         .animate-marquee { animation: marquee 70s linear infinite; }
-        .heartbeat-alive { display: inline-block; width: 60px; height: 20px; vertical-align: middle; }
+        .heartbeat-alive { display: inline-block; width: 50px; height: 18px; vertical-align: middle; }
         .heartbeat-alive svg { width: 100%; height: 100%; }
         .heartbeat-alive .pulse { animation: heartbeat 1.4s infinite ease-in-out; stroke: #22c55e; stroke-width: 3; fill: none; }
         @keyframes heartbeat {
           0%, 100% { d: path("M0 10 L10 10 L15 2 L20 18 L25 10 L35 10"); }
-          40% { d: path("M0 10 L10 10 L13 4 L17 16 L21 10 L35 10"); }
-          60% { d: path("M0 10 L10 10 L14 6 L18 14 L22 10 L35 10"); }
+          40%  { d: path("M0 10 L10 10 L13 4 L17 16 L21 10 L35 10"); }
+          60%  { d: path("M0 10 L10 10 L14 6 L18 14 L22 10 L35 10"); }
         }
-        .flatline-dead { display: inline-block; width: 60px; height: 3px; background-color: #ef4444; vertical-align: middle; }
-        .name-cell { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .flatline-dead { display: inline-block; width: 50px; height: 3px; background-color: #ef4444; vertical-align: middle; }
+
+        /* ── Sticky columns ── */
+        .col-name {
+          position: sticky;
+          left: 0;
+          z-index: 10;
+        }
+        thead .col-name {
+          z-index: 20;
+        }
+        /* Scroll-shadow hint on the right edge of the name column */
+        .col-name::after {
+          content: '';
+          position: absolute;
+          top: 0; right: -10px; bottom: 0;
+          width: 10px;
+          background: linear-gradient(to right, rgba(0,0,0,0.10), transparent);
+          pointer-events: none;
+        }
+
+        /* ── My row highlight ── */
+        tr.my-row td {
+          background-color: #fefce8 !important;
+        }
+        tr.my-row {
+          box-shadow: inset 0 0 0 2px #eab308;
+        }
+
+        /* ── Dead row sticky bg ── */
+        tr.dead-row td.col-name {
+          background-color: #fef2f2 !important;
+        }
+
+        /* Default sticky bg for normal rows */
+        tr:not(.my-row):not(.dead-row) td.col-name {
+          background-color: #ffffff;
+        }
+        tr:not(.my-row):not(.dead-row):hover td.col-name {
+          background-color: #f9fafb;
+        }
       `}</style>
 
       <LiveTicker />
@@ -488,10 +521,8 @@ export default function Home() {
               const homeDisabled = (hasSubmittedThisSession && usedTeams.includes(game.homeTeam.name)) || dayLocked || isEliminated;
               const awaySelected = selectedTeam === game.awayTeam.name;
               const homeSelected = selectedTeam === game.homeTeam.name;
-
               return (
                 <div key={game.gameId} className="flex items-center justify-center gap-3 w-full max-w-xl">
-                  {/* Away team */}
                   <button
                     onClick={() => !awayDisabled && setSelectedTeam(game.awayTeam.name)}
                     disabled={awayDisabled}
@@ -499,15 +530,10 @@ export default function Home() {
                       ${awaySelected ? 'bg-[#2A6A5E] text-white shadow-md' : 'bg-white text-[#2A6A5E] hover:bg-gray-50'}
                       ${awayDisabled ? 'opacity-60 line-through bg-gray-100 cursor-not-allowed' : ''}`}
                   >
-                    {game.awayTeam.rank ? (
-                      <span className="text-xs font-bold opacity-70 mr-1">#{game.awayTeam.rank}</span>
-                    ) : null}
+                    {game.awayTeam.rank ? <span className="text-xs font-bold opacity-70 mr-1">#{game.awayTeam.rank}</span> : null}
                     {game.awayTeam.name}
                   </button>
-
                   <span className="text-gray-400 font-bold text-sm flex-shrink-0">vs</span>
-
-                  {/* Home team */}
                   <button
                     onClick={() => !homeDisabled && setSelectedTeam(game.homeTeam.name)}
                     disabled={homeDisabled}
@@ -515,9 +541,7 @@ export default function Home() {
                       ${homeSelected ? 'bg-[#2A6A5E] text-white shadow-md' : 'bg-white text-[#2A6A5E] hover:bg-gray-50'}
                       ${homeDisabled ? 'opacity-60 line-through bg-gray-100 cursor-not-allowed' : ''}`}
                   >
-                    {game.homeTeam.rank ? (
-                      <span className="text-xs font-bold opacity-70 mr-1">#{game.homeTeam.rank}</span>
-                    ) : null}
+                    {game.homeTeam.rank ? <span className="text-xs font-bold opacity-70 mr-1">#{game.homeTeam.rank}</span> : null}
                     {game.homeTeam.name}
                   </button>
                 </div>
@@ -540,19 +564,31 @@ export default function Home() {
           </p>
         )}
 
-        <div className="w-full max-w-6xl mt-16 flex justify-center">
-          <div className="overflow-x-auto w-full">
-            <h2 className="text-3xl font-bold text-[#2A6A5E] mb-6 text-center">Standings & Picks</h2>
-            {loading ? (
-              <p className="text-center text-gray-600">Loading...</p>
-            ) : (
-              <table className="bg-white rounded-lg shadow overflow-hidden w-full">
+        <div className="w-full max-w-6xl mt-16">
+          <h2 className="text-3xl font-bold text-[#2A6A5E] mb-6 text-center">Standings & Picks</h2>
+          {loading ? (
+            <p className="text-center text-gray-600">Loading...</p>
+          ) : (
+            <div className="overflow-x-auto w-full rounded-lg shadow">
+              <table className="bg-white w-full" style={{ borderCollapse: 'separate', borderSpacing: 0 }}>
                 <thead className="bg-[#2A6A5E] text-white">
                   <tr>
-                    <th className="py-4 px-4 text-center">Name</th>
-                    <th className="py-4 px-4 text-center">Status</th>
+                    <th
+                      className="col-name py-4 px-3 text-center text-sm font-semibold bg-[#2A6A5E]"
+                      style={{ minWidth: NAME_W, width: NAME_W }}
+                    >
+                      Name
+                    </th>
+                    <th
+                      className="col-status py-4 px-3 text-center text-sm font-semibold bg-[#2A6A5E]"
+                      style={{ minWidth: STATUS_W, width: STATUS_W }}
+                    >
+                      Status
+                    </th>
                     {TEST_DATES.map((dateStr) => (
-                      <th key={dateStr} className="py-4 px-4 text-center text-sm">{formatLabel(dateStr)}</th>
+                      <th key={dateStr} className="py-4 px-4 text-center text-sm font-semibold" style={{ minWidth: 110 }}>
+                        {formatLabel(dateStr)}
+                      </th>
                     ))}
                   </tr>
                 </thead>
@@ -570,22 +606,33 @@ export default function Home() {
                       return -1;
                     })();
 
+                    const rowClass = [
+                      'border-b',
+                      isDead ? 'dead-row' : '',
+                      isMe && hasSubmittedThisSession ? 'my-row' : '',
+                    ].filter(Boolean).join(' ');
+
                     return (
-                      <tr key={user.name} className={`border-b hover:bg-gray-50 ${isDead ? 'bg-red-50 opacity-80' : ''}`}>
-                        {/* Name — nowrap keeps first+initial on one line */}
-                        <td className={`py-3 px-4 font-medium text-center name-cell ${isDead ? 'text-red-600 line-through' : 'text-gray-800'}`}>
+                      <tr key={user.name} className={rowClass}>
+                        <td
+                          className={`col-name py-3 px-3 font-medium text-center text-sm whitespace-nowrap ${isDead ? 'text-red-600 line-through' : 'text-gray-800'}`}
+                          style={{ minWidth: NAME_W, width: NAME_W }}
+                        >
                           {user.fullName}
                         </td>
-                        <td className="py-3 px-4">
-                          <div className="flex items-center justify-center gap-2">
+                        <td
+                          className="col-status py-3 px-2"
+                          style={{ minWidth: STATUS_W, width: STATUS_W }}
+                        >
+                          <div className="flex items-center justify-center gap-1">
                             {isDead ? (
                               <>
-                                <span className="text-red-600 font-bold">Dead</span>
+                                <span className="text-red-600 font-bold text-xs">Dead</span>
                                 <div className="flatline-dead" />
                               </>
                             ) : (
                               <>
-                                <span className="text-green-600 font-bold">Alive</span>
+                                <span className="text-green-600 font-bold text-xs">Alive</span>
                                 <div className="heartbeat-alive">
                                   <svg viewBox="0 0 35 20">
                                     <path className="pulse" d="M0 10 L10 10 L15 2 L20 18 L25 10 L35 10" />
@@ -604,7 +651,6 @@ export default function Home() {
 
                           const isPostElimination = eliminatedAtRoundIndex !== -1 && i > eliminatedAtRoundIndex;
 
-                          // Get rank for the picked team from the scoreboard
                           const pickRank = pickTeam ? teamRankMap.get(pickTeam) : undefined;
                           const rankLabel = pickRank ? `#${pickRank} ` : '';
 
@@ -622,9 +668,7 @@ export default function Home() {
                             } else if (pickObj?.status === 'eliminated') {
                               cellClass = 'bg-red-100 text-red-800 font-bold';
                             } else {
-                              cellClass = isDead
-                                ? 'bg-red-100 text-red-800 font-bold'
-                                : 'bg-yellow-100 text-yellow-800';
+                              cellClass = isDead ? 'bg-red-100 text-red-800 font-bold' : 'bg-yellow-100 text-yellow-800';
                             }
                           } else if (picksRevealed) {
                             display = <span className="text-gray-400 italic font-normal">-No Pick-</span>;
@@ -662,8 +706,8 @@ export default function Home() {
                   })}
                 </tbody>
               </table>
-            )}
-          </div>
+            </div>
+          )}
         </div>
 
         <footer className="mt-20 text-gray-600 text-sm text-center">Created by Mike Schwartz</footer>
