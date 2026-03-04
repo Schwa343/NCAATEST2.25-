@@ -81,6 +81,13 @@ function isRevealed(dateStr: string): boolean {
   return new Date() >= new Date(t);
 }
 
+function getRankLabel(rank: string | number): string {
+  if (rank === '' || rank === undefined || rank === null) return '';
+  const n = Number(rank);
+  if (!isNaN(n) && n >= 1 && n <= 25) return `#${n} `;
+  return '';
+}
+
 function LiveTicker() {
   const [games, setGames] = useState<Game[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -288,7 +295,6 @@ export default function Home() {
     return unsub;
   }, [shortName]);
 
-  // Auto-detect wins/losses from final scores
   useEffect(() => {
     if (!scoreboard.length || !allUsers.length) return;
     allUsers.forEach(user => {
@@ -322,12 +328,16 @@ export default function Home() {
     });
   }, [scoreboard, allUsers]);
 
+  // Build matchup pairs for the current day — ranked teams grouped with their opponent
   const dayGames = scoreboard.filter(g => g.date === currentDateStr);
-  const availableTeams = Array.from(new Set(
-    dayGames
-      .filter(g => g.homeTeam.rank || g.awayTeam.rank)
-      .flatMap(g => [g.homeTeam.name, g.awayTeam.name].filter(Boolean))
-  )).sort((a, b) => a.localeCompare(b));
+  const rankedMatchups = dayGames.filter(g => g.homeTeam.rank || g.awayTeam.rank);
+
+  // Build a lookup: teamName -> rank
+  const teamRankMap = new Map<string, string | number>();
+  scoreboard.forEach(g => {
+    if (g.homeTeam.rank) teamRankMap.set(g.homeTeam.name, g.homeTeam.rank);
+    if (g.awayTeam.rank) teamRankMap.set(g.awayTeam.name, g.awayTeam.rank);
+  });
 
   const revealTimeForToday = REVEAL_TIMES[currentDateStr] ? new Date(REVEAL_TIMES[currentDateStr]) : null;
   const [y, m, d] = currentDateStr.split('-').map(Number);
@@ -419,6 +429,11 @@ export default function Home() {
     setEditingCell(null);
   };
 
+  // For admin dropdown — flat sorted list with rank labels
+  const availableTeamsForAdmin = Array.from(new Set(
+    rankedMatchups.flatMap(g => [g.homeTeam.name, g.awayTeam.name].filter(Boolean))
+  )).sort((a, b) => a.localeCompare(b));
+
   return (
     <>
       <style jsx global>{`
@@ -433,6 +448,7 @@ export default function Home() {
           60% { d: path("M0 10 L10 10 L14 6 L18 14 L22 10 L35 10"); }
         }
         .flatline-dead { display: inline-block; width: 60px; height: 3px; background-color: #ef4444; vertical-align: middle; }
+        .name-cell { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
       `}</style>
 
       <LiveTicker />
@@ -462,21 +478,49 @@ export default function Home() {
           ))}
         </div>
 
-        <div className="flex flex-wrap justify-center gap-3 max-w-5xl mb-10">
-          {availableTeams.length === 0 ? (
+        {/* Matchup-style team selection */}
+        <div className="flex flex-col items-center gap-4 max-w-5xl w-full mb-10">
+          {rankedMatchups.length === 0 ? (
             <p className="text-gray-500 italic">No ranked games found for this date yet...</p>
           ) : (
-            availableTeams.map(team => {
-              const disabled = (hasSubmittedThisSession && usedTeams.includes(team)) || dayLocked || isEliminated;
+            rankedMatchups.map((game) => {
+              const awayDisabled = (hasSubmittedThisSession && usedTeams.includes(game.awayTeam.name)) || dayLocked || isEliminated;
+              const homeDisabled = (hasSubmittedThisSession && usedTeams.includes(game.homeTeam.name)) || dayLocked || isEliminated;
+              const awaySelected = selectedTeam === game.awayTeam.name;
+              const homeSelected = selectedTeam === game.homeTeam.name;
+
               return (
-                <button
-                  key={team}
-                  onClick={() => !disabled && setSelectedTeam(team)}
-                  disabled={disabled}
-                  className={`px-6 py-3 border-2 border-[#2A6A5E] rounded-lg min-w-[160px] ${selectedTeam === team ? 'bg-[#2A6A5E] text-white shadow-md' : 'bg-white text-[#2A6A5E] hover:bg-gray-50'} ${disabled ? 'opacity-60 line-through bg-gray-100 cursor-not-allowed' : ''}`}
-                >
-                  {team}
-                </button>
+                <div key={game.gameId} className="flex items-center justify-center gap-3 w-full max-w-xl">
+                  {/* Away team */}
+                  <button
+                    onClick={() => !awayDisabled && setSelectedTeam(game.awayTeam.name)}
+                    disabled={awayDisabled}
+                    className={`flex-1 px-4 py-3 border-2 border-[#2A6A5E] rounded-lg text-center font-semibold transition-all
+                      ${awaySelected ? 'bg-[#2A6A5E] text-white shadow-md' : 'bg-white text-[#2A6A5E] hover:bg-gray-50'}
+                      ${awayDisabled ? 'opacity-60 line-through bg-gray-100 cursor-not-allowed' : ''}`}
+                  >
+                    {game.awayTeam.rank ? (
+                      <span className="text-xs font-bold opacity-70 mr-1">#{game.awayTeam.rank}</span>
+                    ) : null}
+                    {game.awayTeam.name}
+                  </button>
+
+                  <span className="text-gray-400 font-bold text-sm flex-shrink-0">vs</span>
+
+                  {/* Home team */}
+                  <button
+                    onClick={() => !homeDisabled && setSelectedTeam(game.homeTeam.name)}
+                    disabled={homeDisabled}
+                    className={`flex-1 px-4 py-3 border-2 border-[#2A6A5E] rounded-lg text-center font-semibold transition-all
+                      ${homeSelected ? 'bg-[#2A6A5E] text-white shadow-md' : 'bg-white text-[#2A6A5E] hover:bg-gray-50'}
+                      ${homeDisabled ? 'opacity-60 line-through bg-gray-100 cursor-not-allowed' : ''}`}
+                  >
+                    {game.homeTeam.rank ? (
+                      <span className="text-xs font-bold opacity-70 mr-1">#{game.homeTeam.rank}</span>
+                    ) : null}
+                    {game.homeTeam.name}
+                  </button>
+                </div>
               );
             })
           )}
@@ -528,7 +572,8 @@ export default function Home() {
 
                     return (
                       <tr key={user.name} className={`border-b hover:bg-gray-50 ${isDead ? 'bg-red-50 opacity-80' : ''}`}>
-                        <td className={`py-3 px-4 font-medium text-center ${isDead ? 'text-red-600 line-through' : 'text-gray-800'}`}>
+                        {/* Name — nowrap keeps first+initial on one line */}
+                        <td className={`py-3 px-4 font-medium text-center name-cell ${isDead ? 'text-red-600 line-through' : 'text-gray-800'}`}>
                           {user.fullName}
                         </td>
                         <td className="py-3 px-4">
@@ -559,8 +604,14 @@ export default function Home() {
 
                           const isPostElimination = eliminatedAtRoundIndex !== -1 && i > eliminatedAtRoundIndex;
 
+                          // Get rank for the picked team from the scoreboard
+                          const pickRank = pickTeam ? teamRankMap.get(pickTeam) : undefined;
+                          const rankLabel = pickRank ? `#${pickRank} ` : '';
+
                           let cellClass = 'bg-gray-50 text-gray-400';
-                          let display: any = pickTeam || '—';
+                          let display: any = pickTeam
+                            ? <span><span className="text-xs font-bold opacity-60">{rankLabel}</span>{pickTeam}</span>
+                            : '—';
 
                           if (isPostElimination) {
                             cellClass = 'bg-red-100 text-red-500 italic';
@@ -597,7 +648,10 @@ export default function Home() {
                                   className="w-full text-center border border-gray-300 rounded px-1 py-1 bg-white text-xs"
                                 >
                                   <option value="">— Clear —</option>
-                                  {availableTeams.map(t => <option key={t} value={t}>{t}</option>)}
+                                  {availableTeamsForAdmin.map(t => {
+                                    const rank = teamRankMap.get(t);
+                                    return <option key={t} value={t}>{rank ? `#${rank} ` : ''}{t}</option>;
+                                  })}
                                 </select>
                               ) : visible ? display : '█████'}
                             </td>
@@ -612,7 +666,7 @@ export default function Home() {
           </div>
         </div>
 
-        <footer className="mt-20 text-gray-600 text-sm text-center">Created by Mike Schwartz </footer>
+        <footer className="mt-20 text-gray-600 text-sm text-center">Created by Mike Schwartz</footer>
       </main>
     </>
   );
