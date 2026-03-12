@@ -44,26 +44,25 @@ const participantFullNames = [
   'Zak B', 'Alex M', 'Sean F', 'Tyler D', 'Mike G'
 ];
 
-const TEST_DATES = [
-  '2026-03-02',
-  '2026-03-03',
-  '2026-03-04',
-  '2026-03-05',
-  '2026-03-06',
+const TOURNAMENT_ROUNDS: { dateStr: string; label: string; shortLabel: string }[] = [
+  { dateStr: '2026-03-19', label: 'Round of 64 Day 1 (3-19)', shortLabel: 'R64 D1' },
+  { dateStr: '2026-03-20', label: 'Round of 64 Day 2 (3-20)', shortLabel: 'R64 D2' },
+  { dateStr: '2026-03-21', label: 'Round of 32 Day 1 (3-21)', shortLabel: 'R32 D1' },
+  { dateStr: '2026-03-22', label: 'Round of 32 Day 2 (3-22)', shortLabel: 'R32 D2' },
+  { dateStr: '2026-03-26', label: 'Sweet 16 Day 1 (3-26)',    shortLabel: 'S16 D1' },
+  { dateStr: '2026-03-27', label: 'Sweet 16 Day 2 (3-27)',    shortLabel: 'S16 D2' },
+  { dateStr: '2026-03-28', label: 'Elite 8 Day 1 (3-28)',     shortLabel: 'E8 D1'  },
+  { dateStr: '2026-03-29', label: 'Elite 8 Day 2 (3-29)',     shortLabel: 'E8 D2'  },
+  { dateStr: '2026-04-04', label: 'Final Four (4-4)',          shortLabel: 'F4'     },
+  { dateStr: '2026-04-06', label: 'Championship (4-6)',        shortLabel: 'Natty'  },
 ];
 
-const REVEAL_TIMES: Record<string, string> = {
-  '2026-03-02': '2026-03-02T17:00:00Z',
-  '2026-03-03': '2026-03-03T17:00:00Z',
-  '2026-03-04': '2026-03-04T17:00:00Z',
-  '2026-03-05': '2026-03-05T17:00:00Z',
-  '2026-03-06': '2026-03-06T17:00:00Z',
-};
+const TEST_DATES = TOURNAMENT_ROUNDS.map(r => r.dateStr);
 
-function formatLabel(dateStr: string) {
-  const [y, m, d] = dateStr.split('-').map(Number);
-  return new Date(y, m - 1, d).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-}
+// Lock time = noon ET (17:00 UTC) on each game day
+const REVEAL_TIMES: Record<string, string> = Object.fromEntries(
+  TOURNAMENT_ROUNDS.map(r => [r.dateStr, `${r.dateStr}T17:00:00Z`])
+);
 
 function normalizeTeamName(name: string): string {
   return name.toLowerCase().replace(/[^a-z0-9]/g, '').replace(/\s+/g, '').replace(/state/gi, 'st');
@@ -94,7 +93,7 @@ function LiveTicker() {
       const today = new Date();
       const formatDate = (d: Date) => d.toISOString().split('T')[0].replace(/-/g, '');
       const res = await fetch(
-        `https://site.api.espn.com/apis/site/v2/sports/basketball/mens-college-basketball/scoreboard?dates=${formatDate(today)}&groups=50&limit=500`
+        `https://site.api.espn.com/apis/site/v2/sports/basketball/mens-college-basketball/scoreboard?dates=${formatDate(today)}&groups=100&limit=500`
       );
       let allEvents: any[] = [];
       if (res.ok) {
@@ -130,7 +129,7 @@ function LiveTicker() {
       const todayStr = new Date().toLocaleDateString('en-CA');
       setGames(formatted.filter(g => {
         const desc = g.status.toLowerCase();
-        return g.date === todayStr && !desc.includes('final') && !desc.includes('end') && (g.homeTeam.rank || g.awayTeam.rank);
+        return g.date === todayStr && !desc.includes('final') && !desc.includes('end');
       }));
     } catch {
       setError('Live scores unavailable');
@@ -157,7 +156,7 @@ function LiveTicker() {
   const handleMouseUp = () => { isDragging.current = false; };
 
   if (error) return <div className="fixed top-0 left-0 right-0 z-50 bg-red-800 text-white py-3 px-4 text-center font-medium">{error}</div>;
-  if (games.length === 0) return <div className="fixed top-0 left-0 right-0 z-50 bg-gray-800 text-white py-3 px-4 text-center font-medium">No ranked games live/upcoming</div>;
+  if (games.length === 0) return <div className="fixed top-0 left-0 right-0 z-50 bg-gray-800 text-white py-3 px-4 text-center font-medium">No games live/upcoming today</div>;
 
   return (
     <div
@@ -203,10 +202,16 @@ export default function Home() {
   const [editingCell, setEditingCell] = useState<{ name: string; round: string } | null>(null);
   const [hasSubmittedThisSession, setHasSubmittedThisSession] = useState(false);
 
+  // Auto-select today's round tab, or the nearest upcoming one
   useEffect(() => {
     const todayStr = new Date().toLocaleDateString('en-CA');
     const idx = TEST_DATES.findIndex(d => d === todayStr);
-    if (idx !== -1) setCurrentDayIndex(idx);
+    if (idx !== -1) {
+      setCurrentDayIndex(idx);
+    } else {
+      const nextIdx = TEST_DATES.findIndex(d => d > todayStr);
+      if (nextIdx !== -1) setCurrentDayIndex(nextIdx);
+    }
   }, []);
 
   const currentDateStr = TEST_DATES[currentDayIndex];
@@ -322,7 +327,6 @@ export default function Home() {
   }, [scoreboard, allUsers]);
 
   const dayGames = scoreboard.filter(g => g.date === currentDateStr);
-  const rankedMatchups = dayGames.filter(g => g.homeTeam.rank || g.awayTeam.rank);
 
   const teamRankMap = new Map<string, string | number>();
   scoreboard.forEach(g => {
@@ -421,12 +425,10 @@ export default function Home() {
   };
 
   const availableTeamsForAdmin = Array.from(new Set(
-    rankedMatchups.flatMap(g => [g.homeTeam.name, g.awayTeam.name].filter(Boolean))
+    dayGames.flatMap(g => [g.homeTeam.name, g.awayTeam.name].filter(Boolean))
   )).sort((a, b) => a.localeCompare(b));
 
-  // Width of sticky columns — must match minWidth in the th/td below
   const NAME_W = 88;
-  const STATUS_W = 86;
 
   return (
     <>
@@ -443,7 +445,7 @@ export default function Home() {
         }
         .flatline-dead { display: inline-block; width: 50px; height: 3px; background-color: #ef4444; vertical-align: middle; }
 
-        /* ── Sticky columns ── */
+        /* ── Sticky name column ── */
         .col-name {
           position: sticky;
           left: 0;
@@ -454,6 +456,9 @@ export default function Home() {
         }
 
         /* ── My row highlight — yellow border only ── */
+        tr.my-row td.col-name {
+          background-color: #ffffff !important;
+        }
         tr.my-row td {
           border-top: 3px solid #eab308 !important;
           border-bottom: 3px solid #eab308 !important;
@@ -494,24 +499,31 @@ export default function Home() {
 
         {isAdmin && <p className="text-center text-purple-700 font-bold mb-6">ADMIN MODE ACTIVE — click any pick cell to edit</p>}
 
-        <div className="flex flex-wrap justify-center gap-3 mb-8">
-          {TEST_DATES.map((dateStr, i) => (
-            <button
-              key={dateStr}
-              onClick={() => setCurrentDayIndex(i)}
-              className={`px-5 py-2 rounded-full text-sm font-medium ${currentDayIndex === i ? 'bg-[#2A6A5E] text-white' : 'bg-gray-200 text-gray-700'}`}
-            >
-              {formatLabel(dateStr)}
-            </button>
-          ))}
+        {/* Round selector tabs — horizontally scrollable on mobile */}
+        <div className="w-full max-w-3xl mb-8 overflow-x-auto">
+          <div className="flex gap-2 pb-1 px-1" style={{ minWidth: 'max-content' }}>
+            {TOURNAMENT_ROUNDS.map((r, i) => (
+              <button
+                key={r.dateStr}
+                onClick={() => setCurrentDayIndex(i)}
+                className={`px-3 py-2 rounded-lg text-xs font-semibold whitespace-nowrap transition-colors ${
+                  currentDayIndex === i
+                    ? 'bg-[#2A6A5E] text-white shadow'
+                    : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                }`}
+              >
+                {r.label}
+              </button>
+            ))}
+          </div>
         </div>
 
         {/* Matchup-style team selection */}
         <div className="flex flex-col items-center gap-4 max-w-5xl w-full mb-10">
-          {rankedMatchups.length === 0 ? (
-            <p className="text-gray-500 italic">No ranked games found for this date yet...</p>
+          {dayGames.length === 0 ? (
+            <p className="text-gray-500 italic">No games found for this round yet...</p>
           ) : (
-            rankedMatchups.map((game) => {
+            dayGames.map((game) => {
               const awayDisabled = (hasSubmittedThisSession && usedTeams.includes(game.awayTeam.name)) || dayLocked || isEliminated;
               const homeDisabled = (hasSubmittedThisSession && usedTeams.includes(game.homeTeam.name)) || dayLocked || isEliminated;
               const awaySelected = selectedTeam === game.awayTeam.name;
@@ -574,15 +586,12 @@ export default function Home() {
                     >
                       Name
                     </th>
-                    <th
-                      className="col-status py-4 px-3 text-center text-sm font-semibold bg-[#2A6A5E]"
-                      style={{ minWidth: STATUS_W, width: STATUS_W }}
-                    >
+                    <th className="py-4 px-3 text-center text-sm font-semibold" style={{ minWidth: 86 }}>
                       Status
                     </th>
-                    {TEST_DATES.map((dateStr) => (
-                      <th key={dateStr} className="py-4 px-4 text-center text-sm font-semibold" style={{ minWidth: 110 }}>
-                        {formatLabel(dateStr)}
+                    {TOURNAMENT_ROUNDS.map((r) => (
+                      <th key={r.dateStr} className="py-4 px-2 text-center text-xs font-semibold" style={{ minWidth: 72 }}>
+                        {r.shortLabel}
                       </th>
                     ))}
                   </tr>
@@ -594,8 +603,8 @@ export default function Home() {
 
                     const eliminatedAtRoundIndex = (() => {
                       for (let i = 0; i < TEST_DATES.length; i++) {
-                        const r = `Day ${i + 1}`;
-                        const pick = user.picks.find((p: Pick) => p.round === r);
+                        const roundKey = `Day ${i + 1}`;
+                        const pick = user.picks.find((p: Pick) => p.round === roundKey);
                         if (pick?.status === 'eliminated') return i;
                       }
                       return -1;
@@ -615,10 +624,7 @@ export default function Home() {
                         >
                           {user.fullName}
                         </td>
-                        <td
-                          className="col-status py-3 px-2"
-                          style={{ minWidth: STATUS_W, width: STATUS_W }}
-                        >
+                        <td className="py-3 px-2" style={{ minWidth: 86 }}>
                           <div className="flex items-center justify-center gap-1">
                             {isDead ? (
                               <>
@@ -637,11 +643,11 @@ export default function Home() {
                             )}
                           </div>
                         </td>
-                        {TEST_DATES.map((dateStr, i) => {
-                          const r = `Day ${i + 1}`;
-                          const pickObj = user.picks.find((p: Pick) => p.round === r);
+                        {TOURNAMENT_ROUNDS.map((r, i) => {
+                          const roundKey = `Day ${i + 1}`;
+                          const pickObj = user.picks.find((p: Pick) => p.round === roundKey);
                           const pickTeam = pickObj?.team || '';
-                          const picksRevealed = isRevealed(dateStr);
+                          const picksRevealed = isRevealed(r.dateStr);
                           const visible = (isMe && hasSubmittedThisSession) || picksRevealed || isAdmin;
 
                           const isPostElimination = eliminatedAtRoundIndex !== -1 && i > eliminatedAtRoundIndex;
@@ -670,19 +676,19 @@ export default function Home() {
                             cellClass = 'bg-gray-50 text-gray-400';
                           }
 
-                          const isEditing = isAdmin && editingCell?.name === user.name && editingCell?.round === r;
+                          const isEditing = isAdmin && editingCell?.name === user.name && editingCell?.round === roundKey;
 
                           return (
                             <td
                               key={i}
-                              className={`py-3 px-4 text-center text-sm font-semibold cursor-pointer ${visible ? cellClass : isDead ? 'bg-red-100 text-red-800' : 'bg-gray-200 text-transparent blur-sm'}`}
-                              onClick={() => { if (isAdmin && !isEditing) setEditingCell({ name: user.name, round: r }); }}
+                              className={`py-3 px-2 text-center text-xs font-semibold cursor-pointer ${visible ? cellClass : isDead ? 'bg-red-100 text-red-800' : 'bg-gray-200 text-transparent blur-sm'}`}
+                              onClick={() => { if (isAdmin && !isEditing) setEditingCell({ name: user.name, round: roundKey }); }}
                             >
                               {isEditing ? (
                                 <select
                                   autoFocus
                                   defaultValue={pickTeam}
-                                  onChange={(e) => handleAdminEdit(user.name, r, e.target.value)}
+                                  onChange={(e) => handleAdminEdit(user.name, roundKey, e.target.value)}
                                   onBlur={() => setEditingCell(null)}
                                   className="w-full text-center border border-gray-300 rounded px-1 py-1 bg-white text-xs"
                                 >
@@ -710,4 +716,3 @@ export default function Home() {
     </>
   );
 }
-
