@@ -59,10 +59,11 @@ const TOURNAMENT_ROUNDS: { dateStr: string; label: string; shortLabel: string }[
 
 const TEST_DATES = TOURNAMENT_ROUNDS.map(r => r.dateStr);
 
-// Lock time = noon ET (17:00 UTC) on each game day
 const REVEAL_TIMES: Record<string, string> = Object.fromEntries(
   TOURNAMENT_ROUNDS.map(r => [r.dateStr, `${r.dateStr}T17:00:00Z`])
 );
+
+const LS_KEY = 'ncaa_survivor_user';
 
 function normalizeTeamName(name: string): string {
   return name.toLowerCase().replace(/[^a-z0-9]/g, '').replace(/\s+/g, '').replace(/state/gi, 'st');
@@ -78,6 +79,12 @@ function isRevealed(dateStr: string): boolean {
   const t = REVEAL_TIMES[dateStr];
   if (!t) return false;
   return new Date() >= new Date(t);
+}
+
+function bestRank(game: Game): number {
+  const a = Number(game.awayTeam.rank) || 99;
+  const h = Number(game.homeTeam.rank) || 99;
+  return Math.min(a, h);
 }
 
 function LiveTicker() {
@@ -201,6 +208,19 @@ export default function Home() {
   const [usedTeams, setUsedTeams] = useState<string[]>([]);
   const [editingCell, setEditingCell] = useState<{ name: string; round: string } | null>(null);
   const [hasSubmittedThisSession, setHasSubmittedThisSession] = useState(false);
+
+  // ── Load saved login from localStorage on mount ──
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(LS_KEY);
+      if (saved) {
+        const { firstName: fn, lastInitial: li } = JSON.parse(saved);
+        if (fn) setFirstName(fn);
+        if (li) setLastInitial(li);
+        setHasSubmittedThisSession(true);
+      }
+    } catch {}
+  }, []);
 
   // Auto-select today's round tab, or the nearest upcoming one
   useEffect(() => {
@@ -328,6 +348,17 @@ export default function Home() {
 
   const dayGames = scoreboard.filter(g => g.date === currentDateStr);
 
+  const sortedMatchups = [...dayGames]
+    .map(game => {
+      const awayRank = Number(game.awayTeam.rank) || 99;
+      const homeRank = Number(game.homeTeam.rank) || 99;
+      if (homeRank < awayRank) {
+        return { ...game, awayTeam: game.homeTeam, homeTeam: game.awayTeam };
+      }
+      return game;
+    })
+    .sort((a, b) => bestRank(a) - bestRank(b));
+
   const teamRankMap = new Map<string, string | number>();
   scoreboard.forEach(g => {
     if (g.homeTeam.rank) teamRankMap.set(g.homeTeam.name, g.homeTeam.rank);
@@ -387,6 +418,10 @@ export default function Home() {
           status: 'pending',
         });
       }
+      // ── Save login to localStorage so refresh keeps them logged in ──
+      try {
+        localStorage.setItem(LS_KEY, JSON.stringify({ firstName: firstName.trim(), lastInitial: lastInitial.trim().toUpperCase() }));
+      } catch {}
       setStatusMessage(`Saved: ${selectedTeam}`);
       setSelectedTeam('');
       setHasSubmittedThisSession(true);
@@ -445,7 +480,6 @@ export default function Home() {
         }
         .flatline-dead { display: inline-block; width: 50px; height: 3px; background-color: #ef4444; vertical-align: middle; }
 
-        /* ── Sticky name column ── */
         .col-name {
           position: sticky;
           left: 0;
@@ -455,7 +489,6 @@ export default function Home() {
           z-index: 20;
         }
 
-        /* ── My row highlight — yellow border only ── */
         tr.my-row td.col-name {
           background-color: #ffffff !important;
         }
@@ -470,12 +503,10 @@ export default function Home() {
           border-right: 3px solid #eab308;
         }
 
-        /* ── Dead row sticky bg ── */
         tr.dead-row td.col-name {
           background-color: #fef2f2 !important;
         }
 
-        /* Default sticky bg for normal rows */
         tr:not(.my-row):not(.dead-row) td.col-name {
           background-color: #ffffff;
         }
@@ -492,10 +523,28 @@ export default function Home() {
         <h1 className="text-4xl md:text-5xl font-bold text-[#2A6A5E] text-center mb-2">NCAA Survivor Pool</h1>
         <p className="text-xl text-gray-700 text-center mb-8 max-w-2xl">Pick one team per day — no repeats — last one standing wins</p>
 
-        <div className="flex justify-center gap-4 mb-8">
+        <div className="flex justify-center gap-4 mb-2">
           <input placeholder="First Name" value={firstName} onChange={e => setFirstName(e.target.value)} className="px-4 py-2 border rounded w-52 text-gray-900 bg-white" />
           <input placeholder="L" maxLength={1} value={lastInitial} onChange={e => setLastInitial(e.target.value.toUpperCase().slice(0, 1))} className="w-14 text-center px-2 py-2 border rounded text-gray-900 bg-white" />
         </div>
+
+        {/* ── Show logged-in state + logout link ── */}
+        {hasSubmittedThisSession && shortName.length > 1 && (
+          <p className="text-sm text-gray-500 mb-6">
+            Logged in as <span className="font-semibold text-[#2A6A5E]">{shortName}</span>
+            {' · '}
+            <button
+              className="underline text-gray-400 hover:text-gray-600"
+              onClick={() => {
+                try { localStorage.removeItem(LS_KEY); } catch {}
+                setFirstName(''); setLastInitial(''); setHasSubmittedThisSession(false);
+              }}
+            >
+              Log out
+            </button>
+          </p>
+        )}
+        {!hasSubmittedThisSession && <div className="mb-6" />}
 
         {isAdmin && <p className="text-center text-purple-700 font-bold mb-6">ADMIN MODE ACTIVE — click any pick cell to edit</p>}
 
@@ -518,12 +567,12 @@ export default function Home() {
           </div>
         </div>
 
-        {/* Matchup-style team selection */}
+        {/* Matchup-style team selection — sorted by rank (#1 at top) */}
         <div className="flex flex-col items-center gap-4 max-w-5xl w-full mb-10">
-          {dayGames.length === 0 ? (
+          {sortedMatchups.length === 0 ? (
             <p className="text-gray-500 italic">No games found for this round yet...</p>
           ) : (
-            dayGames.map((game) => {
+            sortedMatchups.map((game) => {
               const awayDisabled = (hasSubmittedThisSession && usedTeams.includes(game.awayTeam.name)) || dayLocked || isEliminated;
               const homeDisabled = (hasSubmittedThisSession && usedTeams.includes(game.homeTeam.name)) || dayLocked || isEliminated;
               const awaySelected = selectedTeam === game.awayTeam.name;
