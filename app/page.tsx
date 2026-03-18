@@ -41,7 +41,7 @@ const participantFullNames = [
   'Patrick G', 'Garret G', 'Mike S', 'Derrick D', 'Matt S',
   'Connor G', 'Nick D', 'Chris C', 'Brian B', 'Rich D',
   'Peter M', 'Spenser P', 'Nick M', 'James C', 'Tom S',
-  'Zak B', 'Alex M', 'Sean F', 'Tyler D', 'Mike G'
+  'Zak B', 'Alex M', 'Sean F', 'Tyler D'
 ];
 
 const TOURNAMENT_ROUNDS: { dateStr: string; label: string; shortLabel: string }[] = [
