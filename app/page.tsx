@@ -60,7 +60,7 @@ const TOURNAMENT_ROUNDS: { dateStr: string; label: string; shortLabel: string }[
 const TEST_DATES = TOURNAMENT_ROUNDS.map(r => r.dateStr);
 
 const REVEAL_TIMES: Record<string, string> = Object.fromEntries(
-  TOURNAMENT_ROUNDS.map(r => [r.dateStr, `${r.dateStr}T17:00:00Z`])
+  TOURNAMENT_ROUNDS.map(r => [r.dateStr, `${r.dateStr}T16:00:00Z`])
 );
 
 const LS_KEY = 'ncaa_survivor_user';
