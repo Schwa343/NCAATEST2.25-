@@ -59,9 +59,18 @@ const TOURNAMENT_ROUNDS: { dateStr: string; label: string; shortLabel: string }[
 
 const TEST_DATES = TOURNAMENT_ROUNDS.map(r => r.dateStr);
 
-const REVEAL_TIMES: Record<string, string> = Object.fromEntries(
-  TOURNAMENT_ROUNDS.map(r => [r.dateStr, `${r.dateStr}T16:00:00Z`])
-);
+const REVEAL_TIMES: Record<string, string> = {
+  '2026-03-19': '2026-03-19T16:00:00Z',  // noon ET
+  '2026-03-20': '2026-03-20T16:00:00Z',  // noon ET
+  '2026-03-21': '2026-03-21T16:00:00Z',  // noon ET
+  '2026-03-22': '2026-03-22T16:00:00Z',  // noon ET
+  '2026-03-26': '2026-03-26T16:00:00Z',  // noon ET
+  '2026-03-27': '2026-03-27T16:00:00Z',  // noon ET
+  '2026-03-28': '2026-03-28T16:00:00Z',  // noon ET
+  '2026-03-29': '2026-03-29T16:00:00Z',  // noon ET
+  '2026-04-04': '2026-04-04T16:00:00Z',  // noon ET
+  '2026-04-06': '2026-04-06T16:00:00Z',  // noon ET
+};
 
 const LS_KEY = 'ncaa_survivor_user';
 
