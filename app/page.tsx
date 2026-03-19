@@ -59,6 +59,7 @@ const TOURNAMENT_ROUNDS: { dateStr: string; label: string; shortLabel: string }[
 
 const TEST_DATES = TOURNAMENT_ROUNDS.map(r => r.dateStr);
 
+// Noon ET = 16:00 UTC during EDT (March–November, all tournament dates are EDT)
 const REVEAL_TIMES: Record<string, string> = {
   '2026-03-19': '2026-03-19T16:00:00Z',  // noon ET
   '2026-03-20': '2026-03-20T16:00:00Z',  // noon ET
@@ -330,10 +331,11 @@ export default function Home() {
         const dayIdx = TEST_DATES.findIndex((_, i) => `Day ${i + 1}` === pick.round);
         if (dayIdx === -1) return;
         const pickDateStr = TEST_DATES[dayIdx];
+        // FIX: use === instead of includes to prevent partial name matches (e.g. Virginia matching West Virginia)
         const game = scoreboard.find(g =>
           g.date === pickDateStr &&
-          (normalizeTeamName(g.homeTeam.name).includes(normalizeTeamName(pick.team)) ||
-            normalizeTeamName(g.awayTeam.name).includes(normalizeTeamName(pick.team)))
+          (normalizeTeamName(g.homeTeam.name) === normalizeTeamName(pick.team) ||
+            normalizeTeamName(g.awayTeam.name) === normalizeTeamName(pick.team))
         );
         if (!game) return;
         const isFinal = game.status.toLowerCase().includes('final') || game.status.toLowerCase().includes('end');
@@ -341,7 +343,8 @@ export default function Home() {
         const h = Number(game.homeTeam.score) || 0;
         const a = Number(game.awayTeam.score) || 0;
         if (h === 0 && a === 0) return;
-        const isHome = normalizeTeamName(game.homeTeam.name).includes(normalizeTeamName(pick.team));
+        // FIX: use === here too
+        const isHome = normalizeTeamName(game.homeTeam.name) === normalizeTeamName(pick.team);
         const won = isHome ? h > a : a > h;
         const q = query(collection(db, 'picks'), where('name', '==', user.name), where('round', '==', pick.round));
         const snap = await getDocs(q);
@@ -374,9 +377,10 @@ export default function Home() {
     if (g.awayTeam.rank) teamRankMap.set(g.awayTeam.name, g.awayTeam.rank);
   });
 
+  // Noon ET = 16:00 UTC during EDT (all tournament dates March–April are EDT)
   const revealTimeForToday = REVEAL_TIMES[currentDateStr] ? new Date(REVEAL_TIMES[currentDateStr]) : null;
   const [y, m, d] = currentDateStr.split('-').map(Number);
-  const fallbackNoon = new Date(Date.UTC(y, m - 1, d, 17, 0, 0));
+  const fallbackNoon = new Date(Date.UTC(y, m - 1, d, 16, 0, 0));
   const lockTime = revealTimeForToday ?? fallbackNoon;
   const dayLocked = new Date() >= lockTime;
 
@@ -406,7 +410,7 @@ export default function Home() {
       return;
     }
     if (new Date() >= lockTime) {
-      setStatusMessage('Picks locked — first game has tipped off');
+      setStatusMessage('Picks locked — noon ET has passed');
       return;
     }
     try {
@@ -453,7 +457,8 @@ export default function Home() {
       const q = query(collection(db, 'picks'), where('name', '==', userName), where('round', '==', editRound));
       const existing = await getDocs(q);
       if (!existing.empty) {
-        await updateDoc(doc(db, 'picks', existing.docs[0].id), { team: newTeam, timestamp: serverTimestamp() });
+        // FIX: reset status to pending so the auto-checker re-evaluates the corrected pick
+        await updateDoc(doc(db, 'picks', existing.docs[0].id), { team: newTeam, timestamp: serverTimestamp(), status: 'pending' });
       } else {
         await addDoc(collection(db, 'picks'), {
           name: userName, team: newTeam, round: editRound,
