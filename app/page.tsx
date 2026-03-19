@@ -255,7 +255,7 @@ export default function Home() {
         try {
           const d = dateStr.replace(/-/g, '');
           const res = await fetch(
-            `https://site.api.espn.com/apis/site/v2/sports/basketball/mens-college-basketball/scoreboard?dates=${d}&limit=500`
+            `https://site.api.espn.com/apis/site/v2/sports/basketball/mens-college-basketball/scoreboard?dates=${d}&groups=100&limit=500`
           );
           if (res.ok) {
             const data = await res.json();
@@ -325,13 +325,19 @@ export default function Home() {
 
   useEffect(() => {
     if (!scoreboard.length || !allUsers.length) return;
+
+    const todayStr = new Date().toLocaleDateString('en-CA');
+
     allUsers.forEach(user => {
       user.picks.forEach(async (pick: Pick) => {
         if (pick.status && pick.status !== 'pending') return;
         const dayIdx = TEST_DATES.findIndex((_, i) => `Day ${i + 1}` === pick.round);
         if (dayIdx === -1) return;
         const pickDateStr = TEST_DATES[dayIdx];
-        // FIX: use === instead of includes to prevent partial name matches (e.g. Virginia matching West Virginia)
+
+        // GUARD: never attempt to score picks for future dates — only today or past
+        if (pickDateStr > todayStr) return;
+
         const game = scoreboard.find(g =>
           g.date === pickDateStr &&
           (normalizeTeamName(g.homeTeam.name) === normalizeTeamName(pick.team) ||
@@ -343,7 +349,6 @@ export default function Home() {
         const h = Number(game.homeTeam.score) || 0;
         const a = Number(game.awayTeam.score) || 0;
         if (h === 0 && a === 0) return;
-        // FIX: use === here too
         const isHome = normalizeTeamName(game.homeTeam.name) === normalizeTeamName(pick.team);
         const won = isHome ? h > a : a > h;
         const q = query(collection(db, 'picks'), where('name', '==', user.name), where('round', '==', pick.round));
@@ -457,7 +462,7 @@ export default function Home() {
       const q = query(collection(db, 'picks'), where('name', '==', userName), where('round', '==', editRound));
       const existing = await getDocs(q);
       if (!existing.empty) {
-        // FIX: reset status to pending so the auto-checker re-evaluates the corrected pick
+        // Reset status to pending so the auto-checker re-evaluates once the game is final
         await updateDoc(doc(db, 'picks', existing.docs[0].id), { team: newTeam, timestamp: serverTimestamp(), status: 'pending' });
       } else {
         await addDoc(collection(db, 'picks'), {
