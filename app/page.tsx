@@ -187,7 +187,7 @@ function LiveTicker() {
       `}</style>
       <div className="inline-flex animate-marquee gap-20">
         {[...games, ...games].map((g, i) => (
-          <span key={i} className="font-medium">
+          <span key={i} className={`font-medium ${g.status.toLowerCase().includes('final') || g.status.toLowerCase().includes('end') ? 'text-black' : 'text-white'}`}>
             {g.awayTeam.rank ? `#${g.awayTeam.rank} ` : ''}{g.awayTeam.name} {g.awayTeam.score} @
             {g.homeTeam.rank ? ` #${g.homeTeam.rank} ` : ' '}{g.homeTeam.name} {g.homeTeam.score}
             <span className="text-yellow-300 ml-2 font-semibold">
