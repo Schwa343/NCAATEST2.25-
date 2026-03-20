@@ -144,10 +144,7 @@ function LiveTicker() {
         };
       }).filter(Boolean) as Game[];
       const todayStr = new Date().toLocaleDateString('en-CA');
-      setGames(formatted.filter(g => {
-        const desc = g.status.toLowerCase();
-        return g.date === todayStr && !desc.includes('final') && !desc.includes('end');
-      }));
+      setGames(formatted.filter(g => g.date === todayStr));
     } catch {
       setError('Live scores unavailable');
     }
