@@ -341,7 +341,7 @@ export default function Home() {
             normalizeTeamName(g.awayTeam.name) === normalizeTeamName(pick.team))
         );
         if (!game) return;
-        const isFinal = game.status.toLowerCase().includes('final') || game.status.toLowerCase().includes('end');
+        const isFinal = game.status.toLowerCase().includes('final');
         if (!isFinal) return;
         const h = Number(game.homeTeam.score) || 0;
         const a = Number(game.awayTeam.score) || 0;
