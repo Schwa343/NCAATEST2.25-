@@ -59,21 +59,45 @@ const TOURNAMENT_ROUNDS: { dateStr: string; label: string; shortLabel: string }[
 
 const TEST_DATES = TOURNAMENT_ROUNDS.map(r => r.dateStr);
 
-// Noon ET = 16:00 UTC during EDT (March–November, all tournament dates are EDT)
+// All tournament dates fall within EDT (UTC-4), which runs March 8 – Nov 1, 2026.
+// Noon ET (EDT)     = 12:00 EDT = 16:00 UTC  → picks lock / picks reveal
+// Midnight ET (EDT) = 00:00 EDT = 04:00 UTC  → day boundary for ticker/date logic
 const REVEAL_TIMES: Record<string, string> = {
-  '2026-03-19': '2026-03-19T16:00:00Z',  // noon ET
-  '2026-03-20': '2026-03-20T16:00:00Z',  // noon ET
-  '2026-03-21': '2026-03-21T16:00:00Z',  // noon ET
-  '2026-03-22': '2026-03-22T16:00:00Z',  // noon ET
-  '2026-03-26': '2026-03-26T16:00:00Z',  // noon ET
-  '2026-03-27': '2026-03-27T16:00:00Z',  // noon ET
-  '2026-03-28': '2026-03-28T16:00:00Z',  // noon ET
-  '2026-03-29': '2026-03-29T16:00:00Z',  // noon ET
-  '2026-04-04': '2026-04-04T16:00:00Z',  // noon ET
-  '2026-04-06': '2026-04-06T16:00:00Z',  // noon ET
+  '2026-03-19': '2026-03-19T16:00:00Z',  // noon ET (EDT = UTC-4)
+  '2026-03-20': '2026-03-20T16:00:00Z',
+  '2026-03-21': '2026-03-21T16:00:00Z',
+  '2026-03-22': '2026-03-22T16:00:00Z',
+  '2026-03-26': '2026-03-26T16:00:00Z',
+  '2026-03-27': '2026-03-27T16:00:00Z',
+  '2026-03-28': '2026-03-28T16:00:00Z',
+  '2026-03-29': '2026-03-29T16:00:00Z',
+  '2026-04-04': '2026-04-04T16:00:00Z',
+  '2026-04-06': '2026-04-06T16:00:00Z',
 };
 
 const LS_KEY = 'ncaa_survivor_user';
+
+/**
+ * Returns today's date string (YYYY-MM-DD) in Eastern Time.
+ *
+ * Using .toISOString() gives the UTC date, which rolls over at 8 pm ET
+ * (midnight UTC) — causing the ticker to fetch the wrong day's games for
+ * the last 4 hours of each night. Subtracting the EDT offset (4 h) first
+ * keeps the date string correct until midnight ET (= 04:00 UTC).
+ *
+ * All tournament dates are EDT (UTC-4). If you ever need EST (UTC-5),
+ * change the offset constant to 5.
+ */
+function getETDateStr(): string {
+  const EDT_OFFSET_MS = 4 * 60 * 60 * 1000; // 4 hours in ms (EDT = UTC-4)
+  return new Date(Date.now() - EDT_OFFSET_MS).toISOString().split('T')[0];
+}
+
+/** Format a Date as YYYYMMDD in Eastern Time (for ESPN API date params). */
+function formatETDate(d: Date): string {
+  const EDT_OFFSET_MS = 4 * 60 * 60 * 1000;
+  return new Date(d.getTime() - EDT_OFFSET_MS).toISOString().split('T')[0].replace(/-/g, '');
+}
 
 function normalizeTeamName(name: string): string {
   return name.toLowerCase().replace(/[^a-z0-9]/g, '').replace(/\s+/g, '').replace(/state/gi, 'st');
@@ -107,10 +131,13 @@ function LiveTicker() {
 
   const fetchScores = async () => {
     try {
-      const today = new Date();
-      const formatDate = (d: Date) => d.toISOString().split('T')[0].replace(/-/g, '');
+      // Use ET date so the ticker stays on today's games until midnight ET,
+      // not until 8 pm ET (when UTC rolls over to the next calendar day).
+      const todayETStr = getETDateStr();
+      const todayETParam = todayETStr.replace(/-/g, '');
+
       const res = await fetch(
-        `https://site.api.espn.com/apis/site/v2/sports/basketball/mens-college-basketball/scoreboard?dates=${formatDate(today)}&groups=100&limit=500`
+        `https://site.api.espn.com/apis/site/v2/sports/basketball/mens-college-basketball/scoreboard?dates=${todayETParam}&groups=100&limit=500`
       );
       let allEvents: any[] = [];
       if (res.ok) {
@@ -139,12 +166,12 @@ function LiveTicker() {
           },
           status: comp.status.type.description || 'Scheduled',
           clock: comp.status.displayClock || '',
-          date: new Date(comp.date).toLocaleDateString('en-CA'),
+          date: getETDateStr(), // tag with ET date, not UTC date
           startTime: comp.date,
         };
       }).filter(Boolean) as Game[];
-      const todayStr = new Date().toLocaleDateString('en-CA');
-      setGames(formatted.filter(g => g.date === todayStr));
+
+      setGames(formatted);
     } catch {
       setError('Live scores unavailable');
     }
@@ -229,9 +256,9 @@ export default function Home() {
     } catch {}
   }, []);
 
-  // Auto-select today's round tab, or the nearest upcoming one
+  // Auto-select today's round tab (ET date), or the nearest upcoming one
   useEffect(() => {
-    const todayStr = new Date().toLocaleDateString('en-CA');
+    const todayStr = getETDateStr();
     const idx = TEST_DATES.findIndex(d => d === todayStr);
     if (idx !== -1) {
       setCurrentDayIndex(idx);
@@ -323,7 +350,8 @@ export default function Home() {
   useEffect(() => {
     if (!scoreboard.length || !allUsers.length) return;
 
-    const todayStr = new Date().toLocaleDateString('en-CA');
+    // Use ET date for "today" so scoring doesn't flip at 8 pm ET
+    const todayStr = getETDateStr();
 
     allUsers.forEach(user => {
       user.picks.forEach(async (pick: Pick) => {
@@ -332,7 +360,7 @@ export default function Home() {
         if (dayIdx === -1) return;
         const pickDateStr = TEST_DATES[dayIdx];
 
-        // GUARD: never attempt to score picks for future dates — only today or past
+        // GUARD: never attempt to score picks for future dates
         if (pickDateStr > todayStr) return;
 
         const game = scoreboard.find(g =>
@@ -379,11 +407,13 @@ export default function Home() {
     if (g.awayTeam.rank) teamRankMap.set(g.awayTeam.name, g.awayTeam.rank);
   });
 
-  // Noon ET = 16:00 UTC during EDT (all tournament dates March–April are EDT)
-  const revealTimeForToday = REVEAL_TIMES[currentDateStr] ? new Date(REVEAL_TIMES[currentDateStr]) : null;
-  const [y, m, d] = currentDateStr.split('-').map(Number);
-  const fallbackNoon = new Date(Date.UTC(y, m - 1, d, 16, 0, 0));
-  const lockTime = revealTimeForToday ?? fallbackNoon;
+  // Lock time = noon ET = 16:00 UTC (EDT = UTC-4). All tournament dates are EDT.
+  const lockTime = REVEAL_TIMES[currentDateStr]
+    ? new Date(REVEAL_TIMES[currentDateStr])
+    : (() => {
+        const [y, m, d] = currentDateStr.split('-').map(Number);
+        return new Date(Date.UTC(y, m - 1, d, 16, 0, 0)); // noon EDT fallback
+      })();
   const dayLocked = new Date() >= lockTime;
 
   const myUser = allUsers.find(u => u.name === shortName);
@@ -433,7 +463,6 @@ export default function Home() {
           status: 'pending',
         });
       }
-      // ── Save login to localStorage so refresh keeps them logged in ──
       try {
         localStorage.setItem(LS_KEY, JSON.stringify({ firstName: firstName.trim(), lastInitial: lastInitial.trim().toUpperCase() }));
       } catch {}
@@ -459,7 +488,6 @@ export default function Home() {
       const q = query(collection(db, 'picks'), where('name', '==', userName), where('round', '==', editRound));
       const existing = await getDocs(q);
       if (!existing.empty) {
-        // Reset status to pending so the auto-checker re-evaluates once the game is final
         await updateDoc(doc(db, 'picks', existing.docs[0].id), { team: newTeam, timestamp: serverTimestamp(), status: 'pending' });
       } else {
         await addDoc(collection(db, 'picks'), {
