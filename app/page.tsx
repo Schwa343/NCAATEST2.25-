@@ -59,11 +59,10 @@ const TOURNAMENT_ROUNDS: { dateStr: string; label: string; shortLabel: string }[
 
 const TEST_DATES = TOURNAMENT_ROUNDS.map(r => r.dateStr);
 
-// All tournament dates fall within EDT (UTC-4), which runs March 8 – Nov 1, 2026.
-// Noon ET (EDT)     = 12:00 EDT = 16:00 UTC  → picks lock / picks reveal
-// Midnight ET (EDT) = 00:00 EDT = 04:00 UTC  → day boundary for ticker/date logic
+// All tournament dates fall within EDT (UTC-4).
+// Noon ET (EDT) = 16:00 UTC → picks lock / picks reveal
 const REVEAL_TIMES: Record<string, string> = {
-  '2026-03-19': '2026-03-19T16:00:00Z',  // noon ET (EDT = UTC-4)
+  '2026-03-19': '2026-03-19T16:00:00Z',
   '2026-03-20': '2026-03-20T16:00:00Z',
   '2026-03-21': '2026-03-21T16:00:00Z',
   '2026-03-22': '2026-03-22T16:00:00Z',
@@ -79,24 +78,12 @@ const LS_KEY = 'ncaa_survivor_user';
 
 /**
  * Returns today's date string (YYYY-MM-DD) in Eastern Time.
- *
- * Using .toISOString() gives the UTC date, which rolls over at 8 pm ET
- * (midnight UTC) — causing the ticker to fetch the wrong day's games for
- * the last 4 hours of each night. Subtracting the EDT offset (4 h) first
- * keeps the date string correct until midnight ET (= 04:00 UTC).
- *
- * All tournament dates are EDT (UTC-4). If you ever need EST (UTC-5),
- * change the offset constant to 5.
+ * Subtracting the EDT offset (4 h) keeps the date correct until
+ * midnight ET instead of rolling over at 8 pm ET (midnight UTC).
  */
 function getETDateStr(): string {
-  const EDT_OFFSET_MS = 4 * 60 * 60 * 1000; // 4 hours in ms (EDT = UTC-4)
-  return new Date(Date.now() - EDT_OFFSET_MS).toISOString().split('T')[0];
-}
-
-/** Format a Date as YYYYMMDD in Eastern Time (for ESPN API date params). */
-function formatETDate(d: Date): string {
   const EDT_OFFSET_MS = 4 * 60 * 60 * 1000;
-  return new Date(d.getTime() - EDT_OFFSET_MS).toISOString().split('T')[0].replace(/-/g, '');
+  return new Date(Date.now() - EDT_OFFSET_MS).toISOString().split('T')[0];
 }
 
 function normalizeTeamName(name: string): string {
@@ -131,11 +118,7 @@ function LiveTicker() {
 
   const fetchScores = async () => {
     try {
-      // Use ET date so the ticker stays on today's games until midnight ET,
-      // not until 8 pm ET (when UTC rolls over to the next calendar day).
-      const todayETStr = getETDateStr();
-      const todayETParam = todayETStr.replace(/-/g, '');
-
+      const todayETParam = getETDateStr().replace(/-/g, '');
       const res = await fetch(
         `https://site.api.espn.com/apis/site/v2/sports/basketball/mens-college-basketball/scoreboard?dates=${todayETParam}&groups=100&limit=500`
       );
@@ -166,11 +149,10 @@ function LiveTicker() {
           },
           status: comp.status.type.description || 'Scheduled',
           clock: comp.status.displayClock || '',
-          date: getETDateStr(), // tag with ET date, not UTC date
+          date: getETDateStr(),
           startTime: comp.date,
         };
       }).filter(Boolean) as Game[];
-
       setGames(formatted);
     } catch {
       setError('Live scores unavailable');
@@ -347,20 +329,22 @@ export default function Home() {
     return unsub;
   }, [shortName]);
 
+  // ── Auto-scorer: uses pick.id directly from onSnapshot — no getDocs needed ──
   useEffect(() => {
     if (!scoreboard.length || !allUsers.length) return;
 
-    // Use ET date for "today" so scoring doesn't flip at 8 pm ET
     const todayStr = getETDateStr();
 
     allUsers.forEach(user => {
       user.picks.forEach(async (pick: Pick) => {
         if (pick.status && pick.status !== 'pending') return;
+        if (!pick.id) return; // need the doc ID to update
+
         const dayIdx = TEST_DATES.findIndex((_, i) => `Day ${i + 1}` === pick.round);
         if (dayIdx === -1) return;
         const pickDateStr = TEST_DATES[dayIdx];
 
-        // GUARD: never attempt to score picks for future dates
+        // Never score picks for future dates
         if (pickDateStr > todayStr) return;
 
         const game = scoreboard.find(g =>
@@ -369,21 +353,20 @@ export default function Home() {
             normalizeTeamName(g.awayTeam.name) === normalizeTeamName(pick.team))
         );
         if (!game) return;
-        const isFinal = game.status.toLowerCase().includes('final');
-        if (!isFinal) return;
+        if (!game.status.toLowerCase().includes('final')) return;
+
         const h = Number(game.homeTeam.score) || 0;
         const a = Number(game.awayTeam.score) || 0;
         if (h === 0 && a === 0) return;
+
         const isHome = normalizeTeamName(game.homeTeam.name) === normalizeTeamName(pick.team);
         const won = isHome ? h > a : a > h;
-        const q = query(collection(db, 'picks'), where('name', '==', user.name), where('round', '==', pick.round));
-        const snap = await getDocs(q);
-        if (!snap.empty) {
-          await updateDoc(doc(db, 'picks', snap.docs[0].id), {
-            status: won ? 'won' : 'eliminated',
-            resultAt: serverTimestamp(),
-          });
-        }
+
+        // ✅ Use pick.id directly — eliminates the getDocs query entirely
+        await updateDoc(doc(db, 'picks', pick.id), {
+          status: won ? 'won' : 'eliminated',
+          resultAt: serverTimestamp(),
+        });
       });
     });
   }, [scoreboard, allUsers]);
@@ -407,12 +390,12 @@ export default function Home() {
     if (g.awayTeam.rank) teamRankMap.set(g.awayTeam.name, g.awayTeam.rank);
   });
 
-  // Lock time = noon ET = 16:00 UTC (EDT = UTC-4). All tournament dates are EDT.
+  // Lock time = noon ET = 16:00 UTC (EDT = UTC-4)
   const lockTime = REVEAL_TIMES[currentDateStr]
     ? new Date(REVEAL_TIMES[currentDateStr])
     : (() => {
         const [y, m, d] = currentDateStr.split('-').map(Number);
-        return new Date(Date.UTC(y, m - 1, d, 16, 0, 0)); // noon EDT fallback
+        return new Date(Date.UTC(y, m - 1, d, 16, 0, 0));
       })();
   const dayLocked = new Date() >= lockTime;
 
@@ -443,6 +426,10 @@ export default function Home() {
     }
     if (new Date() >= lockTime) {
       setStatusMessage('Picks locked — noon ET has passed');
+      return;
+    }
+    if (!selectedTeam) {
+      setStatusMessage('Please select a team');
       return;
     }
     try {
@@ -524,39 +511,20 @@ export default function Home() {
         }
         .flatline-dead { display: inline-block; width: 50px; height: 3px; background-color: #ef4444; vertical-align: middle; }
 
-        .col-name {
-          position: sticky;
-          left: 0;
-          z-index: 10;
-        }
-        thead .col-name {
-          z-index: 20;
-        }
+        .col-name { position: sticky; left: 0; z-index: 10; }
+        thead .col-name { z-index: 20; }
 
-        tr.my-row td.col-name {
-          background-color: #ffffff !important;
-        }
+        tr.my-row td.col-name { background-color: #ffffff !important; }
         tr.my-row td {
           border-top: 3px solid #eab308 !important;
           border-bottom: 3px solid #eab308 !important;
         }
-        tr.my-row td:first-child {
-          border-left: 3px solid #eab308;
-        }
-        tr.my-row td:last-child {
-          border-right: 3px solid #eab308;
-        }
+        tr.my-row td:first-child { border-left: 3px solid #eab308; }
+        tr.my-row td:last-child { border-right: 3px solid #eab308; }
 
-        tr.dead-row td.col-name {
-          background-color: #fef2f2 !important;
-        }
-
-        tr:not(.my-row):not(.dead-row) td.col-name {
-          background-color: #ffffff;
-        }
-        tr:not(.my-row):not(.dead-row):hover td.col-name {
-          background-color: #f9fafb;
-        }
+        tr.dead-row td.col-name { background-color: #fef2f2 !important; }
+        tr:not(.my-row):not(.dead-row) td.col-name { background-color: #ffffff; }
+        tr:not(.my-row):not(.dead-row):hover td.col-name { background-color: #f9fafb; }
       `}</style>
 
       <LiveTicker />
@@ -572,7 +540,6 @@ export default function Home() {
           <input placeholder="L" maxLength={1} value={lastInitial} onChange={e => setLastInitial(e.target.value.toUpperCase().slice(0, 1))} className="w-14 text-center px-2 py-2 border rounded text-gray-900 bg-white" />
         </div>
 
-        {/* ── Show logged-in state + logout link ── */}
         {hasSubmittedThisSession && shortName.length > 1 && (
           <p className="text-sm text-gray-500 mb-6">
             Logged in as <span className="font-semibold text-[#2A6A5E]">{shortName}</span>
@@ -592,7 +559,6 @@ export default function Home() {
 
         {isAdmin && <p className="text-center text-purple-700 font-bold mb-6">ADMIN MODE ACTIVE — click any pick cell to edit</p>}
 
-        {/* Round selector tabs — horizontally scrollable on mobile */}
         <div className="w-full max-w-3xl mb-8 overflow-x-auto">
           <div className="flex gap-2 pb-1 px-1" style={{ minWidth: 'max-content' }}>
             {TOURNAMENT_ROUNDS.map((r, i) => (
@@ -611,7 +577,6 @@ export default function Home() {
           </div>
         </div>
 
-        {/* Matchup-style team selection — sorted by rank (#1 at top) */}
         <div className="flex flex-col items-center gap-4 max-w-5xl w-full mb-10">
           {sortedMatchups.length === 0 ? (
             <p className="text-gray-500 italic">No games found for this round yet...</p>
