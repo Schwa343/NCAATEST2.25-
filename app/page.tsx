@@ -395,7 +395,7 @@ export default function Home() {
     ? new Date(REVEAL_TIMES[currentDateStr])
     : (() => {
         const [y, m, d] = currentDateStr.split('-').map(Number);
-        return new Date(Date.UTC(y, m - 1, d, 16, 0, 0));
+        return new Date(Date.UTC(y, m - 1, d, 23, 0, 0));
       })();
   const dayLocked = new Date() >= lockTime;
 
