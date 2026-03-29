@@ -35,6 +35,7 @@ interface Pick {
   createdAt?: string;
   status?: 'pending' | 'won' | 'eliminated';
   resultAt?: any;
+  manualOverride?: boolean;
 }
 
 const participantFullNames = [
@@ -295,7 +296,8 @@ export default function Home() {
     if (!scoreboard.length || !allUsers.length) return;
     allUsers.forEach(user => {
       user.picks.forEach(async (pick: Pick) => {
-        if (pick.status && pick.status !== 'pending') return;
+        // Skip if already resolved OR if an admin has manually overridden this pick
+        if ((pick.status && pick.status !== 'pending') || pick.manualOverride) return;
         const dayIdx = TEST_DATES.findIndex((_, i) => `Day ${i + 1}` === pick.round);
         if (dayIdx === -1) return;
         const pickDateStr = TEST_DATES[dayIdx];
@@ -324,7 +326,6 @@ export default function Home() {
     });
   }, [scoreboard, allUsers]);
 
-  // ── NEW: Admin revive — resets all eliminated picks back to 'pending' for a user ──
   const handleAdminRevive = async (userName: string) => {
     const user = allUsers.find(u => u.name === userName);
     if (!user) return;
@@ -335,10 +336,13 @@ export default function Home() {
         const q = query(collection(db, 'picks'), where('name', '==', userName), where('round', '==', pick.round));
         const snap = await getDocs(q);
         if (!snap.empty) {
-          await updateDoc(doc(db, 'picks', snap.docs[0].id), { status: 'pending' });
+          await updateDoc(doc(db, 'picks', snap.docs[0].id), {
+            status: 'pending',
+            manualOverride: true,
+          });
         }
       }
-      setStatusMessage(`Revived ${userName} — all eliminations reset to pending`);
+      setStatusMessage(`Revived ${userName} — will not be auto-eliminated again`);
       setTimeout(() => setStatusMessage(''), 3000);
     } catch (err: any) {
       setStatusMessage('Revive failed: ' + err.message);
@@ -638,7 +642,6 @@ export default function Home() {
                           {user.fullName}
                         </td>
 
-                        {/* ── Status cell — clickable to revive in admin mode ── */}
                         <td
                           className={`py-3 px-2 ${isAdmin && isDead ? 'cursor-pointer hover:bg-yellow-50' : ''}`}
                           style={{ minWidth: 86 }}
