@@ -59,32 +59,9 @@ const TOURNAMENT_ROUNDS: { dateStr: string; label: string; shortLabel: string }[
 
 const TEST_DATES = TOURNAMENT_ROUNDS.map(r => r.dateStr);
 
-// All tournament dates fall within EDT (UTC-4).
-// Noon ET (EDT) = 16:00 UTC → picks lock / picks reveal
-const REVEAL_TIMES: Record<string, string> = {
-  '2026-03-19': '2026-03-19T16:00:00Z',
-  '2026-03-20': '2026-03-20T16:00:00Z',
-  '2026-03-21': '2026-03-21T16:00:00Z',
-  '2026-03-22': '2026-03-22T16:00:00Z',
-  '2026-03-26': '2026-03-26T16:00:00Z',
-  '2026-03-27': '2026-03-27T16:00:00Z',
-  '2026-03-28': '2026-03-28T16:00:00Z',
-  '2026-03-29': '2026-03-29T16:00:00Z',
-  '2026-04-04': '2026-04-04T16:00:00Z',
-  '2026-04-06': '2026-04-06T16:00:00Z',
-};
-
-const LS_KEY = 'ncaa_survivor_user';
-
-/**
- * Returns today's date string (YYYY-MM-DD) in Eastern Time.
- * Subtracting the EDT offset (4 h) keeps the date correct until
- * midnight ET instead of rolling over at 8 pm ET (midnight UTC).
- */
-function getETDateStr(): string {
-  const EDT_OFFSET_MS = 4 * 60 * 60 * 1000;
-  return new Date(Date.now() - EDT_OFFSET_MS).toISOString().split('T')[0];
-}
+const REVEAL_TIMES: Record<string, string> = Object.fromEntries(
+  TOURNAMENT_ROUNDS.map(r => [r.dateStr, `${r.dateStr}T17:00:00Z`])
+);
 
 function normalizeTeamName(name: string): string {
   return name.toLowerCase().replace(/[^a-z0-9]/g, '').replace(/\s+/g, '').replace(/state/gi, 'st');
@@ -102,12 +79,6 @@ function isRevealed(dateStr: string): boolean {
   return new Date() >= new Date(t);
 }
 
-function bestRank(game: Game): number {
-  const a = Number(game.awayTeam.rank) || 99;
-  const h = Number(game.homeTeam.rank) || 99;
-  return Math.min(a, h);
-}
-
 function LiveTicker() {
   const [games, setGames] = useState<Game[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -118,9 +89,10 @@ function LiveTicker() {
 
   const fetchScores = async () => {
     try {
-      const todayETParam = getETDateStr().replace(/-/g, '');
+      const today = new Date();
+      const formatDate = (d: Date) => d.toISOString().split('T')[0].replace(/-/g, '');
       const res = await fetch(
-        `https://site.api.espn.com/apis/site/v2/sports/basketball/mens-college-basketball/scoreboard?dates=${todayETParam}&groups=100&limit=500`
+        `https://site.api.espn.com/apis/site/v2/sports/basketball/mens-college-basketball/scoreboard?dates=${formatDate(today)}&groups=100&limit=500`
       );
       let allEvents: any[] = [];
       if (res.ok) {
@@ -149,11 +121,15 @@ function LiveTicker() {
           },
           status: comp.status.type.description || 'Scheduled',
           clock: comp.status.displayClock || '',
-          date: getETDateStr(),
+          date: new Date(comp.date).toLocaleDateString('en-CA'),
           startTime: comp.date,
         };
       }).filter(Boolean) as Game[];
-      setGames(formatted);
+      const todayStr = new Date().toLocaleDateString('en-CA');
+      setGames(formatted.filter(g => {
+        const desc = g.status.toLowerCase();
+        return g.date === todayStr && !desc.includes('final') && !desc.includes('end');
+      }));
     } catch {
       setError('Live scores unavailable');
     }
@@ -196,7 +172,7 @@ function LiveTicker() {
       `}</style>
       <div className="inline-flex animate-marquee gap-20">
         {[...games, ...games].map((g, i) => (
-          <span key={i} className={`font-medium ${g.status.toLowerCase().includes('final') || g.status.toLowerCase().includes('end') ? 'text-black' : 'text-white'}`}>
+          <span key={i} className="font-medium">
             {g.awayTeam.rank ? `#${g.awayTeam.rank} ` : ''}{g.awayTeam.name} {g.awayTeam.score} @
             {g.homeTeam.rank ? ` #${g.homeTeam.rank} ` : ' '}{g.homeTeam.name} {g.homeTeam.score}
             <span className="text-yellow-300 ml-2 font-semibold">
@@ -225,22 +201,8 @@ export default function Home() {
   const [editingCell, setEditingCell] = useState<{ name: string; round: string } | null>(null);
   const [hasSubmittedThisSession, setHasSubmittedThisSession] = useState(false);
 
-  // ── Load saved login from localStorage on mount ──
   useEffect(() => {
-    try {
-      const saved = localStorage.getItem(LS_KEY);
-      if (saved) {
-        const { firstName: fn, lastInitial: li } = JSON.parse(saved);
-        if (fn) setFirstName(fn);
-        if (li) setLastInitial(li);
-        setHasSubmittedThisSession(true);
-      }
-    } catch {}
-  }, []);
-
-  // Auto-select today's round tab (ET date), or the nearest upcoming one
-  useEffect(() => {
-    const todayStr = getETDateStr();
+    const todayStr = new Date().toLocaleDateString('en-CA');
     const idx = TEST_DATES.findIndex(d => d === todayStr);
     if (idx !== -1) {
       setCurrentDayIndex(idx);
@@ -261,7 +223,7 @@ export default function Home() {
         try {
           const d = dateStr.replace(/-/g, '');
           const res = await fetch(
-            `https://site.api.espn.com/apis/site/v2/sports/basketball/mens-college-basketball/scoreboard?dates=${d}&groups=100&limit=500`
+            `https://site.api.espn.com/apis/site/v2/sports/basketball/mens-college-basketball/scoreboard?dates=${d}&limit=500`
           );
           if (res.ok) {
             const data = await res.json();
@@ -329,60 +291,61 @@ export default function Home() {
     return unsub;
   }, [shortName]);
 
-  // ── Auto-scorer: uses pick.id directly from onSnapshot — no getDocs needed ──
   useEffect(() => {
     if (!scoreboard.length || !allUsers.length) return;
-
-    const todayStr = getETDateStr();
-
     allUsers.forEach(user => {
       user.picks.forEach(async (pick: Pick) => {
         if (pick.status && pick.status !== 'pending') return;
-        if (!pick.id) return; // need the doc ID to update
-
         const dayIdx = TEST_DATES.findIndex((_, i) => `Day ${i + 1}` === pick.round);
         if (dayIdx === -1) return;
         const pickDateStr = TEST_DATES[dayIdx];
-
-        // Never score picks for future dates
-        if (pickDateStr > todayStr) return;
-
         const game = scoreboard.find(g =>
           g.date === pickDateStr &&
-          (normalizeTeamName(g.homeTeam.name) === normalizeTeamName(pick.team) ||
-            normalizeTeamName(g.awayTeam.name) === normalizeTeamName(pick.team))
+          (normalizeTeamName(g.homeTeam.name).includes(normalizeTeamName(pick.team)) ||
+            normalizeTeamName(g.awayTeam.name).includes(normalizeTeamName(pick.team)))
         );
         if (!game) return;
-        if (!game.status.toLowerCase().includes('final')) return;
-
+        const isFinal = game.status.toLowerCase().includes('final') || game.status.toLowerCase().includes('end');
+        if (!isFinal) return;
         const h = Number(game.homeTeam.score) || 0;
         const a = Number(game.awayTeam.score) || 0;
         if (h === 0 && a === 0) return;
-
-        const isHome = normalizeTeamName(game.homeTeam.name) === normalizeTeamName(pick.team);
+        const isHome = normalizeTeamName(game.homeTeam.name).includes(normalizeTeamName(pick.team));
         const won = isHome ? h > a : a > h;
-
-        // ✅ Use pick.id directly — eliminates the getDocs query entirely
-        await updateDoc(doc(db, 'picks', pick.id), {
-          status: won ? 'won' : 'eliminated',
-          resultAt: serverTimestamp(),
-        });
+        const q = query(collection(db, 'picks'), where('name', '==', user.name), where('round', '==', pick.round));
+        const snap = await getDocs(q);
+        if (!snap.empty) {
+          await updateDoc(doc(db, 'picks', snap.docs[0].id), {
+            status: won ? 'won' : 'eliminated',
+            resultAt: serverTimestamp(),
+          });
+        }
       });
     });
   }, [scoreboard, allUsers]);
 
-  const dayGames = scoreboard.filter(g => g.date === currentDateStr);
-
-  const sortedMatchups = [...dayGames]
-    .map(game => {
-      const awayRank = Number(game.awayTeam.rank) || 99;
-      const homeRank = Number(game.homeTeam.rank) || 99;
-      if (homeRank < awayRank) {
-        return { ...game, awayTeam: game.homeTeam, homeTeam: game.awayTeam };
+  // ── NEW: Admin revive — resets all eliminated picks back to 'pending' for a user ──
+  const handleAdminRevive = async (userName: string) => {
+    const user = allUsers.find(u => u.name === userName);
+    if (!user) return;
+    const eliminatedPicks = user.picks.filter((p: Pick) => p.status === 'eliminated');
+    if (eliminatedPicks.length === 0) return;
+    try {
+      for (const pick of eliminatedPicks) {
+        const q = query(collection(db, 'picks'), where('name', '==', userName), where('round', '==', pick.round));
+        const snap = await getDocs(q);
+        if (!snap.empty) {
+          await updateDoc(doc(db, 'picks', snap.docs[0].id), { status: 'pending' });
+        }
       }
-      return game;
-    })
-    .sort((a, b) => bestRank(a) - bestRank(b));
+      setStatusMessage(`Revived ${userName} — all eliminations reset to pending`);
+      setTimeout(() => setStatusMessage(''), 3000);
+    } catch (err: any) {
+      setStatusMessage('Revive failed: ' + err.message);
+    }
+  };
+
+  const dayGames = scoreboard.filter(g => g.date === currentDateStr);
 
   const teamRankMap = new Map<string, string | number>();
   scoreboard.forEach(g => {
@@ -390,13 +353,10 @@ export default function Home() {
     if (g.awayTeam.rank) teamRankMap.set(g.awayTeam.name, g.awayTeam.rank);
   });
 
-  // Lock time = noon ET = 16:00 UTC (EDT = UTC-4)
-  const lockTime = REVEAL_TIMES[currentDateStr]
-    ? new Date(REVEAL_TIMES[currentDateStr])
-    : (() => {
-        const [y, m, d] = currentDateStr.split('-').map(Number);
-        return new Date(Date.UTC(y, m - 1, d, 23, 0, 0));
-      })();
+  const revealTimeForToday = REVEAL_TIMES[currentDateStr] ? new Date(REVEAL_TIMES[currentDateStr]) : null;
+  const [y, m, d] = currentDateStr.split('-').map(Number);
+  const fallbackNoon = new Date(Date.UTC(y, m - 1, d, 17, 0, 0));
+  const lockTime = revealTimeForToday ?? fallbackNoon;
   const dayLocked = new Date() >= lockTime;
 
   const myUser = allUsers.find(u => u.name === shortName);
@@ -425,11 +385,7 @@ export default function Home() {
       return;
     }
     if (new Date() >= lockTime) {
-      setStatusMessage('Picks locked — noon ET has passed');
-      return;
-    }
-    if (!selectedTeam) {
-      setStatusMessage('Please select a team');
+      setStatusMessage('Picks locked — first game has tipped off');
       return;
     }
     try {
@@ -450,9 +406,6 @@ export default function Home() {
           status: 'pending',
         });
       }
-      try {
-        localStorage.setItem(LS_KEY, JSON.stringify({ firstName: firstName.trim(), lastInitial: lastInitial.trim().toUpperCase() }));
-      } catch {}
       setStatusMessage(`Saved: ${selectedTeam}`);
       setSelectedTeam('');
       setHasSubmittedThisSession(true);
@@ -475,7 +428,7 @@ export default function Home() {
       const q = query(collection(db, 'picks'), where('name', '==', userName), where('round', '==', editRound));
       const existing = await getDocs(q);
       if (!existing.empty) {
-        await updateDoc(doc(db, 'picks', existing.docs[0].id), { team: newTeam, timestamp: serverTimestamp(), status: 'pending' });
+        await updateDoc(doc(db, 'picks', existing.docs[0].id), { team: newTeam, timestamp: serverTimestamp() });
       } else {
         await addDoc(collection(db, 'picks'), {
           name: userName, team: newTeam, round: editRound,
@@ -511,20 +464,39 @@ export default function Home() {
         }
         .flatline-dead { display: inline-block; width: 50px; height: 3px; background-color: #ef4444; vertical-align: middle; }
 
-        .col-name { position: sticky; left: 0; z-index: 10; }
-        thead .col-name { z-index: 20; }
+        .col-name {
+          position: sticky;
+          left: 0;
+          z-index: 10;
+        }
+        thead .col-name {
+          z-index: 20;
+        }
 
-        tr.my-row td.col-name { background-color: #ffffff !important; }
+        tr.my-row td.col-name {
+          background-color: #ffffff !important;
+        }
         tr.my-row td {
           border-top: 3px solid #eab308 !important;
           border-bottom: 3px solid #eab308 !important;
         }
-        tr.my-row td:first-child { border-left: 3px solid #eab308; }
-        tr.my-row td:last-child { border-right: 3px solid #eab308; }
+        tr.my-row td:first-child {
+          border-left: 3px solid #eab308;
+        }
+        tr.my-row td:last-child {
+          border-right: 3px solid #eab308;
+        }
 
-        tr.dead-row td.col-name { background-color: #fef2f2 !important; }
-        tr:not(.my-row):not(.dead-row) td.col-name { background-color: #ffffff; }
-        tr:not(.my-row):not(.dead-row):hover td.col-name { background-color: #f9fafb; }
+        tr.dead-row td.col-name {
+          background-color: #fef2f2 !important;
+        }
+
+        tr:not(.my-row):not(.dead-row) td.col-name {
+          background-color: #ffffff;
+        }
+        tr:not(.my-row):not(.dead-row):hover td.col-name {
+          background-color: #f9fafb;
+        }
       `}</style>
 
       <LiveTicker />
@@ -535,29 +507,12 @@ export default function Home() {
         <h1 className="text-4xl md:text-5xl font-bold text-[#2A6A5E] text-center mb-2">NCAA Survivor Pool</h1>
         <p className="text-xl text-gray-700 text-center mb-8 max-w-2xl">Pick one team per day — no repeats — last one standing wins</p>
 
-        <div className="flex justify-center gap-4 mb-2">
+        <div className="flex justify-center gap-4 mb-8">
           <input placeholder="First Name" value={firstName} onChange={e => setFirstName(e.target.value)} className="px-4 py-2 border rounded w-52 text-gray-900 bg-white" />
           <input placeholder="L" maxLength={1} value={lastInitial} onChange={e => setLastInitial(e.target.value.toUpperCase().slice(0, 1))} className="w-14 text-center px-2 py-2 border rounded text-gray-900 bg-white" />
         </div>
 
-        {hasSubmittedThisSession && shortName.length > 1 && (
-          <p className="text-sm text-gray-500 mb-6">
-            Logged in as <span className="font-semibold text-[#2A6A5E]">{shortName}</span>
-            {' · '}
-            <button
-              className="underline text-gray-400 hover:text-gray-600"
-              onClick={() => {
-                try { localStorage.removeItem(LS_KEY); } catch {}
-                setFirstName(''); setLastInitial(''); setHasSubmittedThisSession(false);
-              }}
-            >
-              Log out
-            </button>
-          </p>
-        )}
-        {!hasSubmittedThisSession && <div className="mb-6" />}
-
-        {isAdmin && <p className="text-center text-purple-700 font-bold mb-6">ADMIN MODE ACTIVE — click any pick cell to edit</p>}
+        {isAdmin && <p className="text-center text-purple-700 font-bold mb-6">ADMIN MODE ACTIVE — click any pick cell to edit • click Dead status to revive</p>}
 
         <div className="w-full max-w-3xl mb-8 overflow-x-auto">
           <div className="flex gap-2 pb-1 px-1" style={{ minWidth: 'max-content' }}>
@@ -578,10 +533,10 @@ export default function Home() {
         </div>
 
         <div className="flex flex-col items-center gap-4 max-w-5xl w-full mb-10">
-          {sortedMatchups.length === 0 ? (
+          {dayGames.length === 0 ? (
             <p className="text-gray-500 italic">No games found for this round yet...</p>
           ) : (
-            sortedMatchups.map((game) => {
+            dayGames.map((game) => {
               const awayDisabled = (hasSubmittedThisSession && usedTeams.includes(game.awayTeam.name)) || dayLocked || isEliminated;
               const homeDisabled = (hasSubmittedThisSession && usedTeams.includes(game.homeTeam.name)) || dayLocked || isEliminated;
               const awaySelected = selectedTeam === game.awayTeam.name;
@@ -682,11 +637,18 @@ export default function Home() {
                         >
                           {user.fullName}
                         </td>
-                        <td className="py-3 px-2" style={{ minWidth: 86 }}>
+
+                        {/* ── Status cell — clickable to revive in admin mode ── */}
+                        <td
+                          className={`py-3 px-2 ${isAdmin && isDead ? 'cursor-pointer hover:bg-yellow-50' : ''}`}
+                          style={{ minWidth: 86 }}
+                          title={isAdmin && isDead ? `Click to revive ${user.name}` : undefined}
+                          onClick={() => { if (isAdmin && isDead) handleAdminRevive(user.name); }}
+                        >
                           <div className="flex items-center justify-center gap-1">
                             {isDead ? (
                               <>
-                                <span className="text-red-600 font-bold text-xs">Dead</span>
+                                <span className={`font-bold text-xs ${isAdmin ? 'text-red-600 underline decoration-dotted' : 'text-red-600'}`}>Dead</span>
                                 <div className="flatline-dead" />
                               </>
                             ) : (
@@ -701,6 +663,7 @@ export default function Home() {
                             )}
                           </div>
                         </td>
+
                         {TOURNAMENT_ROUNDS.map((r, i) => {
                           const roundKey = `Day ${i + 1}`;
                           const pickObj = user.picks.find((p: Pick) => p.round === roundKey);
